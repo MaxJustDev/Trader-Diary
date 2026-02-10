@@ -1,0 +1,4 @@
+# Auto Claude data directory
+.auto-claude/
+.claude
+**/*.md
