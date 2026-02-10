@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(del \"C:\\\\Users\\\\Max\\\\Desktop\\\\TraderDiary\\\\backend\\\\app\\\\models\\\\fund_templates.py\")",
+      "Bash(python -c:*)"
+    ]
+  }
+}
