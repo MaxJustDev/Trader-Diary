@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Text, TIMESTAMP, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -10,6 +10,8 @@ class Fund(Base):
     id = Column(Integer, primary_key=True, index=True)
     fund_name = Column(String(100), unique=True, nullable=False)
     server_pattern = Column(String(100), nullable=False)
+    name_format = Column(String(200), nullable=True)
+    account_name_patterns = Column(Text, nullable=True)  # JSON string
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     programs = relationship("FundProgram", back_populates="fund", cascade="all, delete-orphan")

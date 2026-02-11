@@ -1,0 +1,4 @@
+// Placeholder component file to ensure folder creation
+export default function Placeholder() {
+  return null;
+}

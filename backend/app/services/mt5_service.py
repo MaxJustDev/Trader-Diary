@@ -1,37 +1,64 @@
 import MetaTrader5 as mt5
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+import os
 import time
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Default path used as the base template for copying
+MT5_BASE_PATH = os.environ.get(
+    "MT5_BASE_PATH",
+    r"C:\Program Files\MetaTrader 5",
+)
+
+# Directory where per-account terminal copies are stored
+MT5_TERMINALS_DIR = os.environ.get(
+    "MT5_TERMINALS_DIR",
+    r"C:\Program Files",
+)
 
 
 class MT5Service:
     def __init__(self):
         self.connected_account = None
         self.is_initialized = False
+        self.current_path = None
 
-    def initialize(self) -> bool:
-        """Initialize MT5 connection with retry"""
+    @staticmethod
+    def default_exe_path() -> str:
+        """Return the default terminal64.exe path."""
+        return os.path.join(MT5_BASE_PATH, "terminal64.exe")
+
+    def initialize(self, path: Optional[str] = None) -> bool:
+        """Initialize MT5 connection with retry.
+
+        Args:
+            path: Path to terminal64.exe. If None, uses default base path.
+        """
+        terminal_exe = path or os.path.join(MT5_BASE_PATH, "terminal64.exe")
+
+        # If already initialized with a different path, shutdown first
+        if self.is_initialized and self.current_path != terminal_exe:
+            self.shutdown()
+
         if self.is_initialized:
-            # Verify it's actually alive
             if mt5.terminal_info() is not None:
                 return True
-            # Terminal died, reset state
             self.is_initialized = False
 
         for attempt in range(3):
-            # Shutdown any stale state before reinit
             try:
                 mt5.shutdown()
             except Exception:
                 pass
 
-            time.sleep(0.2 * attempt)  # backoff: 0, 0.2, 0.4s
+            time.sleep(0.2 * attempt)
 
-            if mt5.initialize():
+            if mt5.initialize(path=terminal_exe):
                 self.is_initialized = True
+                self.current_path = terminal_exe
                 return True
 
             error = mt5.last_error()
@@ -48,11 +75,12 @@ class MT5Service:
             pass
         self.is_initialized = False
         self.connected_account = None
+        self.current_path = None
 
-    def login(self, account: int, password: str, server: str) -> bool:
+    def login(self, account: int, password: str, server: str, path: Optional[str] = None) -> bool:
         """Login to MT5 account"""
-        if not self.is_initialized:
-            if not self.initialize():
+        if not self.is_initialized or (path and self.current_path != path):
+            if not self.initialize(path=path):
                 return False
 
         if mt5.login(account, password=password, server=server):

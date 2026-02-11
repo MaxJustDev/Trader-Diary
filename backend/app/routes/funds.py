@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List
+import json
 from app.database import get_db
 from app.models.funds import Fund, FundProgram, FundPhaseRule
 from app.schemas import FundCreate, FundResponse, FundFromTemplateRequest
@@ -14,6 +15,8 @@ FUND_TEMPLATES = {
     "FTMO": {
         "fund_name": "FTMO",
         "server_pattern": "FTMO-Server",
+
+        "name_format": None,  # FTMO uses contains-based matching
         "account_name_patterns": [
             # 1-Phase program
             {"contains": "FTMO 1Step Challenge", "program": "1 Phase", "phase": "Phase 1"},
@@ -86,15 +89,14 @@ FUND_TEMPLATES = {
     "The5ers": {
         "fund_name": "The5ers",
         "server_pattern": "FivePercentOnline-Real",
+
+        "name_format": "{phase}-{bal} {name}",
         "account_name_patterns": [
-            # The5ers uses codes like "FHS" in account name: "26022186: FHS - 7.5k XXX"
-            # FHS = Funded (Hyper Scaler)
+            # The5ers MT5 name format: "FHS-7.5K Manh Ngo Nguyen Duc"
+            # Phase codes: HS1 = Phase 1, HS2 = Phase 2, FHS = Funded
             {"contains": "FHS", "program": "2 Phase", "phase": "Funded"},
-            # Evaluation phases
-            {"contains": "E2", "program": "2 Phase", "phase": "Phase 2"},
-            {"contains": "E1", "program": "2 Phase", "phase": "Phase 1"},
-            {"contains": "Phase 2", "program": "2 Phase", "phase": "Phase 2"},
-            {"contains": "Phase 1", "program": "2 Phase", "phase": "Phase 1"},
+            {"contains": "HS2", "program": "2 Phase", "phase": "Phase 2"},
+            {"contains": "HS1", "program": "2 Phase", "phase": "Phase 1"},
         ],
         "programs": [
             {
@@ -135,9 +137,14 @@ FUND_TEMPLATES = {
     "Fortrades": {
         "fund_name": "Fortrades",
         "server_pattern": "FTTrading-Server",
+
+        "name_format": "{bal} - {type} - {phase}",
         "account_name_patterns": [
+            # Fortrades MT5 name format: "$6K - Fast - Phase 1"
+            # Phase is the last segment after " - "
             {"contains": "Funded", "program": "1 Phase", "phase": "Funded"},
             {"contains": "FT Trader", "program": "1 Phase", "phase": "Funded"},
+            {"contains": "Phase 1", "program": "1 Phase", "phase": "Phase 1"},
             {"contains": "Challenge", "program": "1 Phase", "phase": "Phase 1"},
             {"contains": "Evaluation", "program": "1 Phase", "phase": "Phase 1"},
         ],
@@ -174,9 +181,15 @@ FUND_TEMPLATES = {
 
 def _create_fund_from_data(data: dict, db: Session) -> Fund:
     """Create a Fund with all programs and phase rules from a dict."""
+    # Serialize account_name_patterns to JSON if present
+    patterns = data.get("account_name_patterns")
+    patterns_json = json.dumps(patterns) if patterns and isinstance(patterns, list) else None
+
     fund = Fund(
         fund_name=data["fund_name"],
         server_pattern=data["server_pattern"],
+        name_format=data.get("name_format"),
+        account_name_patterns=patterns_json,
     )
     db.add(fund)
     db.flush()

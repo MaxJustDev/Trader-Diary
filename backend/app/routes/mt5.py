@@ -9,6 +9,9 @@ from app.services.encryption import decrypt_password
 from app.websocket import manager
 import asyncio
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -23,7 +26,7 @@ class ConnectRequest(BaseModel):
 
 @router.post("/connect")
 async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
-    """Connect to MT5 account"""
+    """Connect to MT5 account. Shuts down any existing connection first."""
     global connected_account_id
     account_id = request.account_id
 
@@ -36,12 +39,27 @@ async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=500, detail="Failed to decrypt password")
 
-    if connected_account_id:
-        mt5_service.logout()
+    # Smart connect: only shutdown if switching to a different terminal
+    new_path = account.mt5_path or mt5_service.default_exe_path()
+    if mt5_service.is_initialized and mt5_service.current_path == new_path:
+        # Same terminal — just re-login (fast, ~50ms)
+        logger.info("Same terminal path, skipping re-init — re-login only")
+    elif mt5_service.is_initialized:
+        # Different terminal — full shutdown required
+        logger.info("Different terminal path, full shutdown + re-init")
+        mt5_service.shutdown()
 
-    if mt5_service.login(int(account.account_id), password, account.server):
+    if mt5_service.login(int(account.account_id), password, account.server, path=account.mt5_path):
         connected_account_id = account_id
         info = mt5_service.get_account_info()
+
+        # Update stored account data
+        if info:
+            account.mt5_name = info.get("name", "")
+            account.balance = info.get("balance")
+            account.equity = info.get("equity")
+            account.profit = info.get("profit")
+            db.commit()
 
         return {
             "success": True,
@@ -54,13 +72,13 @@ async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
 
 @router.post("/disconnect")
 async def disconnect_mt5():
-    """Disconnect from current MT5 account"""
+    """Disconnect from current MT5 account with full shutdown."""
     global connected_account_id
 
     if not connected_account_id:
         return {"message": "No account connected"}
 
-    mt5_service.logout()
+    mt5_service.shutdown()
     connected_account_id = None
 
     return {"message": "Disconnected successfully"}
@@ -88,6 +106,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 data = {
                     "type": "update",
+                    "connected_account_id": connected_account_id,
                     "account_info": info,
                     "positions": positions,
                     "timestamp": datetime.now().isoformat(),
@@ -98,4 +117,6 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(1)
 
     except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception:
         manager.disconnect(websocket)

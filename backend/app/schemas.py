@@ -63,6 +63,7 @@ class FundProgramResponse(BaseModel):
 class FundCreate(BaseModel):
     fund_name: str
     server_pattern: str
+    name_format: Optional[str] = None
     programs: List[FundProgramCreate]
 
 
@@ -70,6 +71,8 @@ class FundResponse(BaseModel):
     id: int
     fund_name: str
     server_pattern: str
+    name_format: Optional[str] = None
+    account_name_patterns: Optional[str] = None  # JSON string
     programs: List[FundProgramResponse] = []
 
     class Config:
@@ -91,6 +94,8 @@ class AccountUpdate(BaseModel):
     password: Optional[str] = None
     current_phase: Optional[str] = None
     fund_program_id: Optional[int] = None
+    starting_balance: Optional[float] = None
+    next_payout_date: Optional[str] = None
 
 
 class AccountResponse(BaseModel):
@@ -100,6 +105,13 @@ class AccountResponse(BaseModel):
     account_type: str
     fund_program_id: Optional[int]
     current_phase: Optional[str]
+    mt5_path: Optional[str] = None
+    mt5_name: Optional[str] = None
+    balance: Optional[float] = None
+    equity: Optional[float] = None
+    profit: Optional[float] = None
+    starting_balance: Optional[float] = None
+    next_payout_date: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -107,21 +119,28 @@ class AccountResponse(BaseModel):
 
 # --- Trading Schemas ---
 
+class SymbolCheckRequest(BaseModel):
+    symbol: str
+    account_ids: List[int]
+
+
 class PositionCalculateRequest(BaseModel):
     symbol: str
-    direction: str
-    risk_pct: float
-    tp_pips: float
-    sl_pips: Optional[float] = None
+    direction: str          # "BUY" or "SELL"
+    sl_price: float         # absolute SL price
+    tp_price: Optional[float] = None  # absolute TP price
+    risk_type: str = "pct"  # "pct" or "fixed"
+    risk_value: float       # % of balance or fixed $ amount
     account_ids: List[int]
 
 
 class BatchTradeRequest(BaseModel):
     symbol: str
     direction: str
-    risk_pct: float
-    tp_pips: float
-    sl_pips: Optional[float] = None
+    sl_price: float
+    tp_price: Optional[float] = None
+    risk_type: str = "pct"
+    risk_value: float
     account_ids: List[int]
 
 

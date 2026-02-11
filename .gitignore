@@ -2,3 +2,20 @@
 .auto-claude/
 .claude
 **/*.md
+!README.md
+
+# Python
+__pycache__/
+*.pyc
+
+# Database
+*.db
+
+# Build artifacts
+dist/
+build/
+build.bat
+
+# Misc
+nul
+run-claude.bat
