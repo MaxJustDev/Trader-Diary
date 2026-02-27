@@ -45,6 +45,7 @@ export interface Account {
     profit?: number;
     starting_balance?: number;
     next_payout_date?: string;
+    updated_at?: string;
 }
 
 export interface TradeRequest {
@@ -155,6 +156,46 @@ export interface FundAccountAnalytics {
     profit_achieved: boolean;
     locked: boolean;
     violations: string[];
+    best_day_pct?: number | null;
+    best_day_limit?: number | null;
+}
+
+/**
+ * Pre-trade fund rule status returned by calculate-position.
+ * Only populated for fund accounts — personal accounts get level="ok" with null headroom.
+ */
+export interface PreTradeStatus {
+    level: "ok" | "warning" | "blocked";
+    blocked: boolean;
+    block_reasons: string[];
+    warnings: string[];
+    // Daily DD
+    daily_loss_amount?: number;
+    daily_loss_pct?: number;
+    daily_dd_limit_pct?: number;
+    daily_dd_limit_amount?: number;
+    daily_room_amount?: number;
+    daily_room_pct?: number;
+    // Max DD
+    max_loss_amount?: number;
+    max_loss_pct?: number;
+    max_dd_limit_pct?: number;
+    max_dd_limit_amount?: number;
+    max_room_amount?: number;
+    effective_baseline?: number;
+    drawdown_type?: string;
+    // Best day
+    today_pnl?: number;
+    best_day_limit_pct?: number | null;
+    best_day_limit_amount?: number | null;
+    best_day_room?: number | null;
+    // Trade projection
+    risk_amount?: number;
+    would_breach_daily_if_sl?: boolean;
+    would_breach_max_if_sl?: boolean;
+    daily_room_after_sl?: number;
+    max_room_after_sl?: number;
+    phase?: string | null;
 }
 
 export interface FundTemplate {

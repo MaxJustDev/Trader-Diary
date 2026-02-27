@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FundAccountAnalytics } from "@/lib/types";
 import { apiClient } from "@/lib/api-client";
+import { toast } from "sonner";
 
 interface Props {
     account: FundAccountAnalytics;
@@ -34,17 +35,17 @@ function ProgressBar({
             ? "text-red-400"
             : status === "warning"
               ? "text-amber-400"
-              : "text-gray-400";
+              : "text-slate-400";
 
     return (
         <div className="mb-3">
             <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-400">{label}</span>
+                <span className="text-slate-400">{label}</span>
                 <span className={textColor}>
                     {current.toFixed(2)}{suffix} / {limit}{suffix}
                 </span>
             </div>
-            <div className="w-full bg-gray-700 rounded-full h-2">
+            <div className="w-full bg-white/[0.08] rounded-full h-2">
                 <div
                     className={`${barColor} h-2 rounded-full transition-all duration-300`}
                     style={{ width: `${pct}%` }}
@@ -62,6 +63,7 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
         account.starting_balance?.toString() || ""
     );
     const [saving, setSaving] = useState(false);
+    const [advancing, setAdvancing] = useState(false);
 
     const saveDate = async () => {
         setSaving(true);
@@ -75,6 +77,19 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
             console.error("Failed to save date:", e);
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleAdvancePhase = async () => {
+        setAdvancing(true);
+        try {
+            const result = await apiClient.accounts.advancePhase(account.account_id);
+            toast.success(`Phase advanced: ${result.old_phase} → ${result.new_phase}`);
+            onUpdated();
+        } catch (error: any) {
+            toast.error(`Failed to advance phase: ${error.message ?? "Unknown error"}`);
+        } finally {
+            setAdvancing(false);
         }
     };
 
@@ -95,7 +110,6 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
         }
     };
 
-    // Profit target bar (green direction — progress toward goal)
     const profitPct = account.profit_pct;
     const profitTarget = account.profit_target;
     const profitProgress = profitTarget && profitTarget > 0
@@ -109,8 +123,8 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
 
     return (
         <div
-            className={`bg-gray-800 rounded-xl shadow-lg overflow-hidden ${
-                account.locked ? "ring-2 ring-red-500" : ""
+            className={`bg-white/[0.04] backdrop-blur-xl border rounded-xl overflow-hidden ${
+                account.locked ? "border-red-500/60 ring-1 ring-red-500/30" : "border-white/[0.08]"
             }`}
         >
             {/* Locked banner */}
@@ -123,14 +137,14 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
             {/* Header */}
             <div className="p-4 pb-2">
                 <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-lg font-bold text-white">
+                    <h3 className="text-lg font-bold text-slate-100">
                         {account.account_login}
                     </h3>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/[0.08] text-slate-400">
                         {account.current_phase || "—"}
                     </span>
                 </div>
-                <p className="text-sm text-gray-400">
+                <p className="text-sm text-slate-400">
                     {account.fund_name || "Unknown Fund"}
                     {account.program_name ? ` · ${account.program_name}` : ""}
                 </p>
@@ -138,18 +152,18 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
                 {/* Balance row */}
                 <div className="flex items-center gap-4 mt-2 text-sm">
                     <div>
-                        <span className="text-gray-500">Balance: </span>
-                        <span className="text-white font-medium">
+                        <span className="text-slate-500">Balance: </span>
+                        <span className="text-slate-100 font-medium">
                             ${account.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                     </div>
                     <div className="flex items-center gap-1">
-                        <span className="text-gray-500">Start: </span>
+                        <span className="text-slate-500">Start: </span>
                         {editingBalance ? (
                             <span className="flex items-center gap-1">
                                 <input
                                     type="number"
-                                    className="w-24 bg-gray-700 text-white text-sm rounded px-2 py-0.5"
+                                    className="w-24 bg-white/[0.06] border border-white/[0.10] text-slate-100 text-sm rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                     value={balanceValue}
                                     onChange={(e) => setBalanceValue(e.target.value)}
                                     onKeyDown={(e) => e.key === "Enter" && saveBalance()}
@@ -164,14 +178,14 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
                                 </button>
                                 <button
                                     onClick={() => setEditingBalance(false)}
-                                    className="text-gray-500 hover:text-gray-400 text-xs"
+                                    className="text-slate-500 hover:text-slate-400 text-xs"
                                 >
                                     Cancel
                                 </button>
                             </span>
                         ) : (
                             <span className="flex items-center gap-1">
-                                <span className="text-white font-medium">
+                                <span className="text-slate-100 font-medium">
                                     ${account.starting_balance.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                                 </span>
                                 <button
@@ -179,7 +193,7 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
                                         setBalanceValue(account.starting_balance.toString());
                                         setEditingBalance(true);
                                     }}
-                                    className="text-gray-500 hover:text-gray-300"
+                                    className="text-slate-500 hover:text-slate-300"
                                     title="Edit starting balance"
                                 >
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,17 +225,17 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
                 {profitTarget !== null && (
                     <div className="mb-3">
                         <div className="flex justify-between text-sm mb-1">
-                            <span className="text-gray-400">
+                            <span className="text-slate-400">
                                 Profit Target
                                 {account.profit_achieved && (
-                                    <span className="ml-1 text-emerald-400">Achieved</span>
+                                    <span className="ml-1 text-emerald-400">✓ Achieved</span>
                                 )}
                             </span>
                             <span className={profitPct >= 0 ? "text-emerald-400" : "text-red-400"}>
                                 {profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}% / {profitTarget}%
                             </span>
                         </div>
-                        <div className="w-full bg-gray-700 rounded-full h-2">
+                        <div className="w-full bg-white/[0.08] rounded-full h-2">
                             <div
                                 className={`${profitBarColor} h-2 rounded-full transition-all duration-300`}
                                 style={{ width: `${profitProgress}%` }}
@@ -229,17 +243,38 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
                         </div>
                     </div>
                 )}
+
+                {/* Best day rule */}
+                {account.best_day_limit != null && account.best_day_pct != null && (
+                    <ProgressBar
+                        label="Best Day Rule (today)"
+                        current={Math.max(0, account.best_day_pct)}
+                        limit={account.best_day_limit}
+                        status={account.best_day_pct >= account.best_day_limit ? "violated" : account.best_day_pct >= account.best_day_limit * 0.8 ? "warning" : "ok"}
+                    />
+                )}
+
+                {/* Phase advance button */}
+                {account.profit_achieved && (
+                    <button
+                        onClick={handleAdvancePhase}
+                        disabled={advancing}
+                        className="w-full mt-2 py-1.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 disabled:opacity-50 text-white text-xs rounded-lg font-medium transition-all shadow-lg shadow-emerald-500/20"
+                    >
+                        {advancing ? "Advancing..." : "Advance to Next Phase →"}
+                    </button>
+                )}
             </div>
 
             {/* Payout date */}
-            <div className="px-4 py-3 border-t border-gray-700">
+            <div className="px-4 py-3 border-t border-white/[0.08]">
                 <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-400">Next Payout</span>
+                    <span className="text-slate-400">Next Payout</span>
                     {editingDate ? (
                         <span className="flex items-center gap-1">
                             <input
                                 type="date"
-                                className="bg-gray-700 text-white text-sm rounded px-2 py-0.5"
+                                className="bg-white/[0.06] border border-white/[0.10] text-slate-100 text-sm rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                 value={dateValue}
                                 onChange={(e) => setDateValue(e.target.value)}
                                 autoFocus
@@ -253,7 +288,7 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
                             </button>
                             <button
                                 onClick={() => setEditingDate(false)}
-                                className="text-gray-500 hover:text-gray-400 text-xs"
+                                className="text-slate-500 hover:text-slate-400 text-xs"
                             >
                                 Cancel
                             </button>
@@ -261,10 +296,10 @@ export default function FundAccountCard({ account, onUpdated }: Props) {
                     ) : (
                         <button
                             onClick={() => setEditingDate(true)}
-                            className="text-white hover:text-blue-400 flex items-center gap-1"
+                            className="text-slate-100 hover:text-blue-400 flex items-center gap-1"
                         >
                             {account.next_payout_date || "Set date"}
-                            <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                         </button>

@@ -185,6 +185,52 @@ class MT5Service:
 
         return margin
 
+    def close_position(self, ticket: int) -> Dict[str, Any]:
+        """Close an open position by ticket number."""
+        if not self.is_initialized:
+            return {"success": False, "error": "MT5 not initialized"}
+
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            return {"success": False, "error": f"Position #{ticket} not found"}
+
+        pos = positions[0]
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if tick is None:
+            return {"success": False, "error": f"Failed to get tick for {pos.symbol}"}
+
+        price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": pos.symbol,
+            "volume": pos.volume,
+            "type": close_type,
+            "position": ticket,
+            "price": price,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": "TraderDiary Close",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+
+        result = mt5.order_send(request)
+        if result is None:
+            return {"success": False, "error": "Order send failed"}
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            return {
+                "success": False,
+                "error": f"Close failed (retcode {result.retcode}): {result.comment}",
+            }
+
+        return {
+            "success": True,
+            "order": result.order,
+            "volume": result.volume,
+            "price": result.price,
+        }
+
     def place_market_order(
         self,
         symbol: str,

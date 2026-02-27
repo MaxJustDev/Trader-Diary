@@ -21,6 +21,9 @@ class Account(Base):
     profit = Column(Float, nullable=True)
     starting_balance = Column(Float, nullable=True)
     next_payout_date = Column(String(10), nullable=True)  # YYYY-MM-DD
+    daily_open_equity = Column(Float, nullable=True)       # equity at start of trading day
+    daily_open_date = Column(String(10), nullable=True)    # YYYY-MM-DD of last daily reset
+    peak_eod_balance = Column(Float, nullable=True)        # highest EOD balance ever (for trailing DD)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 

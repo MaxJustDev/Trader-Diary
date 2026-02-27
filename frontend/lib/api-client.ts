@@ -55,6 +55,10 @@ class ApiClient {
             this.request<any>("/api/accounts/refresh-all", {
                 method: "POST",
             }),
+        advancePhase: (id: number) =>
+            this.request<any>(`/api/accounts/${id}/advance-phase`, {
+                method: "POST",
+            }),
     };
 
     // Funds API
@@ -90,6 +94,15 @@ class ApiClient {
                 method: "POST",
             }),
         getStatus: () => this.request<any>("/api/mt5/status"),
+        closePosition: (ticket: number) =>
+            this.request<any>("/api/mt5/close-position", {
+                method: "POST",
+                body: JSON.stringify({ ticket }),
+            }),
+        closeAllPositions: () =>
+            this.request<any>("/api/mt5/close-all-positions", {
+                method: "POST",
+            }),
     };
 
     // Trading API
@@ -121,8 +134,15 @@ class ApiClient {
                 method: "PATCH",
                 body: JSON.stringify(data),
             }),
-        getEquityCurve: () => this.request<any>("/api/analytics/equity-curve"),
-        getTradeHistory: () => this.request<any>("/api/analytics/trade-history"),
+        getEquityCurve: (accountId?: number) =>
+            this.request<any>(`/api/analytics/equity-curve${accountId != null ? `?account_id=${accountId}` : ""}`),
+        getTradeHistory: (accountId?: number) =>
+            this.request<any>(`/api/analytics/trade-history${accountId != null ? `?account_id=${accountId}` : ""}`),
+        getJournal: (accountId?: number, days: number = 90) => {
+            const params = new URLSearchParams({ days: String(days) });
+            if (accountId != null) params.set("account_id", String(accountId));
+            return this.request<any>(`/api/analytics/journal?${params}`);
+        },
     };
 }
 

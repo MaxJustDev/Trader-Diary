@@ -1,18 +1,5 @@
 import { create } from 'zustand';
-import { MT5AccountInfo, MT5Position, EquityDataPoint } from './types';
-
-interface Account {
-    id: number;
-    account_id: string;
-    server: string;
-    account_type: string;
-    fund_program_id?: number;
-    current_phase?: string;
-    mt5_name?: string;
-    balance?: number;
-    equity?: number;
-    profit?: number;
-}
+import { Account, MT5AccountInfo, MT5Position, EquityDataPoint } from './types';
 
 interface AccountStore {
     accounts: Account[];
@@ -21,6 +8,7 @@ interface AccountStore {
     setSelectedAccount: (account: Account | null) => void;
     addAccount: (account: Account) => void;
     removeAccount: (id: number) => void;
+    updateAccount: (id: number, data: Partial<Account>) => void;
 }
 
 export const useAccountStore = create<AccountStore>((set) => ({
@@ -33,6 +21,9 @@ export const useAccountStore = create<AccountStore>((set) => ({
     })),
     removeAccount: (id) => set((state) => ({
         accounts: state.accounts.filter(a => a.id !== id)
+    })),
+    updateAccount: (id, data) => set((state) => ({
+        accounts: state.accounts.map(a => a.id === id ? { ...a, ...data } : a),
     })),
 }));
 

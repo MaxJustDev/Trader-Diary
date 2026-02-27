@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useMT5Store } from "@/lib/store";
+import { useMT5Store, useAccountStore } from "@/lib/store";
 import { MT5StreamMessage } from "@/lib/types";
 
 const WS_URL =
@@ -24,7 +24,6 @@ export function useMT5Stream() {
 
     useEffect(() => {
         if (!connected || !connectedAccountId) {
-            // Clean up if we disconnect
             cleanup();
             return;
         }
@@ -54,6 +53,15 @@ export function useMT5Stream() {
                         balance: msg.account_info.balance,
                         equity: msg.account_info.equity,
                     });
+
+                    // Push live balance/equity/profit into the account card in real-time
+                    if (msg.connected_account_id) {
+                        useAccountStore.getState().updateAccount(msg.connected_account_id, {
+                            balance: msg.account_info.balance,
+                            equity: msg.account_info.equity,
+                            profit: msg.account_info.profit,
+                        });
+                    }
                 }
 
                 setPositions(msg.positions ?? []);
@@ -63,7 +71,6 @@ export function useMT5Stream() {
         };
 
         ws.onclose = () => {
-            // Auto-reconnect if still connected
             const state = useMT5Store.getState();
             if (state.connected && state.connectedAccountId) {
                 reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY);
@@ -81,7 +88,7 @@ export function useMT5Stream() {
             reconnectTimer.current = null;
         }
         if (wsRef.current) {
-            wsRef.current.onclose = null; // prevent reconnect on intentional close
+            wsRef.current.onclose = null;
             wsRef.current.close();
             wsRef.current = null;
         }

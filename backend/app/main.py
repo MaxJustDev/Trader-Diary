@@ -12,7 +12,7 @@ from sqlalchemy import text, inspect
 from app.routes import accounts, funds, mt5, trading, analytics
 from app.database import engine, Base
 # Import all models so Base.metadata knows about them
-from app.models import Fund, FundProgram, FundPhaseRule, Account  # noqa: F401
+from app.models import Fund, FundProgram, FundPhaseRule, Account, EquitySnapshot, TradeRecord  # noqa: F401
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -31,6 +31,11 @@ def _migrate():
             ("profit", "FLOAT"),
             ("starting_balance", "FLOAT"),
             ("next_payout_date", "VARCHAR(10)"),
+            ("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+            ("daily_open_equity", "FLOAT"),
+            ("daily_open_date", "VARCHAR(10)"),
+            ("peak_eod_balance", "FLOAT"),
         ]:
             if col not in acct_cols:
                 conn.execute(text(f"ALTER TABLE accounts ADD COLUMN {col} {coltype}"))
@@ -43,6 +48,9 @@ def _migrate():
         ]:
             if col not in fund_cols:
                 conn.execute(text(f"ALTER TABLE funds ADD COLUMN {col} {coltype}"))
+
+        # New tables (created via create_all above, but listed here for clarity)
+        # equity_snapshots and trade_records are auto-created by Base.metadata.create_all
 
         conn.commit()
 

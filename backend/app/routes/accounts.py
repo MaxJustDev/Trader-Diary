@@ -10,6 +10,7 @@ from app.services.mt5_service import MT5Service
 from app.services.mt5_terminal import create_terminal_copy, delete_terminal_copy
 from app.services.encryption import encrypt_password, decrypt_password
 from app.services.phase_detector import detect_phase, parse_starting_balance
+from app.services.rule_checker import RuleChecker
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -163,6 +164,32 @@ async def update_account(
     db.refresh(account)
 
     return account
+
+
+@router.post("/{account_id}/advance-phase")
+async def advance_phase(account_id: int, db: Session = Depends(get_db)):
+    """Advance account to next phase when profit target is achieved."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if not account.fund_program_id or not account.current_phase:
+        raise HTTPException(status_code=400, detail="Account has no fund program or phase set")
+
+    checker = RuleChecker(db)
+    next_phase = checker.get_next_phase(account.fund_program_id, account.current_phase)
+    if not next_phase:
+        raise HTTPException(status_code=400, detail="Already at the final phase — no next phase available")
+
+    old_phase = account.current_phase
+    account.current_phase = next_phase
+    # Reset daily open for the new phase
+    account.daily_open_equity = account.equity or account.balance
+    account.daily_open_date = None
+    db.commit()
+    db.refresh(account)
+
+    logger.info("Advanced account %s from %s → %s", account.account_id, old_phase, next_phase)
+    return {"message": f"Advanced to {next_phase}", "old_phase": old_phase, "new_phase": next_phase}
 
 
 @router.delete("/{account_id}")

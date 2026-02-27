@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
+from datetime import datetime
 
 
 # --- Phase Rule Schemas ---
@@ -112,6 +113,7 @@ class AccountResponse(BaseModel):
     profit: Optional[float] = None
     starting_balance: Optional[float] = None
     next_payout_date: Optional[str] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -133,6 +135,34 @@ class PositionCalculateRequest(BaseModel):
     risk_value: float       # % of balance or fixed $ amount
     account_ids: List[int]
 
+    @field_validator("sl_price")
+    @classmethod
+    def sl_price_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("sl_price must be greater than 0")
+        return v
+
+    @field_validator("risk_value")
+    @classmethod
+    def risk_value_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("risk_value must be greater than 0")
+        return v
+
+    @field_validator("direction")
+    @classmethod
+    def direction_valid(cls, v: str) -> str:
+        if v.upper() not in ("BUY", "SELL"):
+            raise ValueError("direction must be BUY or SELL")
+        return v.upper()
+
+    @field_validator("risk_type")
+    @classmethod
+    def risk_type_valid(cls, v: str) -> str:
+        if v not in ("pct", "fixed"):
+            raise ValueError("risk_type must be 'pct' or 'fixed'")
+        return v
+
 
 class BatchTradeRequest(BaseModel):
     symbol: str
@@ -142,6 +172,20 @@ class BatchTradeRequest(BaseModel):
     risk_type: str = "pct"
     risk_value: float
     account_ids: List[int]
+
+    @field_validator("sl_price")
+    @classmethod
+    def sl_price_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("sl_price must be greater than 0")
+        return v
+
+    @field_validator("risk_value")
+    @classmethod
+    def risk_value_positive(cls, v: float) -> float:
+        if v <= 0:
+            raise ValueError("risk_value must be greater than 0")
+        return v
 
 
 # --- Template Schema ---
