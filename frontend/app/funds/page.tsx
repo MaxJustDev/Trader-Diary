@@ -2,22 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { Fund, FundTemplate } from "@/lib/types";
+import { Fund } from "@/lib/types";
 import { toast } from "sonner";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import { RefreshCw } from "lucide-react";
 
 export default function FundsPage() {
     const [funds, setFunds] = useState<Fund[]>([]);
-    const [templates, setTemplates] = useState<Record<string, FundTemplate>>({});
     const [loading, setLoading] = useState(false);
-    const [adding, setAdding] = useState<string | null>(null);
+    const [refreshing, setRefreshing] = useState(false);
     const [expandedFund, setExpandedFund] = useState<number | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
     const [deleting, setDeleting] = useState<number | null>(null);
 
     useEffect(() => {
         loadFunds();
-        loadTemplates();
     }, []);
 
     const loadFunds = async () => {
@@ -32,12 +31,16 @@ export default function FundsPage() {
         }
     };
 
-    const loadTemplates = async () => {
+    const handleRefresh = async () => {
+        setRefreshing(true);
         try {
-            const data = await apiClient.funds.getTemplates();
-            setTemplates(data.templates || {});
-        } catch (error) {
-            console.error("Failed to load templates:", error);
+            const result = await apiClient.funds.refreshTemplates();
+            await loadFunds();
+            toast.success(`Updated: ${result.updated.join(", ")}`);
+        } catch (error: any) {
+            toast.error(`Refresh failed: ${error.message ?? "Unknown error"}`);
+        } finally {
+            setRefreshing(false);
         }
     };
 
@@ -61,23 +64,6 @@ export default function FundsPage() {
         }
     };
 
-    const isFundAdded = (templateName: string) => {
-        return funds.some(f => f.fund_name === templateName);
-    };
-
-    const handleAddFromTemplate = async (key: string) => {
-        setAdding(key);
-        try {
-            await apiClient.funds.createFromTemplate(key);
-            await loadFunds();
-            toast.success("Fund added successfully");
-        } catch (error: any) {
-            toast.error(`Failed to add fund: ${error.message ?? "Unknown error"}`);
-        } finally {
-            setAdding(null);
-        }
-    };
-
     if (loading) {
         return (
             <div className="p-8 flex items-center justify-center">
@@ -97,89 +83,16 @@ export default function FundsPage() {
                 onConfirm={doDelete}
                 onCancel={() => setDeleteConfirm(null)}
             />
-            <h1 className="text-3xl font-bold mb-6 text-slate-100">Funds Management</h1>
-
-            {/* Fund Templates */}
-            <div className="mb-8">
-                <h2 className="text-xl font-semibold mb-4 text-slate-100">Fund Templates</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {Object.entries(templates).map(([key, tpl]) => {
-                        const added = isFundAdded(tpl.fund_name);
-                        return (
-                            <div
-                                key={key}
-                                className={`p-4 rounded-xl transition-all bg-white/[0.04] backdrop-blur-xl border ${
-                                    added
-                                        ? "border-emerald-500/[0.30] opacity-75"
-                                        : "border-white/[0.08] hover:border-blue-500/[0.40] hover:bg-white/[0.06] cursor-pointer"
-                                }`}
-                            >
-                                <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-bold text-lg text-slate-100">{tpl.fund_name}</h3>
-                                    {added && (
-                                        <span className="text-xs bg-emerald-500/[0.15] text-emerald-300 border border-emerald-500/[0.20] px-2 py-1 rounded">
-                                            Added
-                                        </span>
-                                    )}
-                                </div>
-                                <p className="text-xs text-slate-500 font-mono mb-3">{tpl.server_pattern}</p>
-
-                                <div className="space-y-3">
-                                    {tpl.programs.map((prog, pIdx) => (
-                                        <div key={pIdx} className="text-sm border-l-2 border-blue-500/[0.40] pl-3">
-                                            <div className="font-medium mb-1 text-slate-200">{prog.program_name}</div>
-                                            <div className="space-y-0.5">
-                                                {prog.phase_rules.map((rule, rIdx) => (
-                                                    <div key={rIdx} className="text-xs text-slate-500 flex gap-2">
-                                                        <span className="font-medium w-16 text-slate-400">{rule.phase_name}</span>
-                                                        <span className="text-emerald-400">
-                                                            {rule.profit_target ? `PT ${rule.profit_target}%` : "—"}
-                                                        </span>
-                                                        <span className="text-red-400">DD {rule.daily_drawdown}%/{rule.max_drawdown}%</span>
-                                                        <span className="text-slate-600">{rule.drawdown_type}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <div className="flex flex-wrap gap-1 mt-1">
-                                                {prog.payout_days && (
-                                                    <span className="text-xs text-slate-500">Payout: {prog.payout_days}d {prog.payout_type}</span>
-                                                )}
-                                                {prog.min_trading_days && (
-                                                    <span className="text-xs text-slate-500">| Min {prog.min_trading_days} days</span>
-                                                )}
-                                                {prog.max_margin_pct && (
-                                                    <span className="text-xs text-amber-500">| Max margin {prog.max_margin_pct}%</span>
-                                                )}
-                                                {prog.best_day_rule_pct && (
-                                                    <span className="text-xs text-yellow-500">| Best day {prog.best_day_rule_pct}%</span>
-                                                )}
-                                                {prog.min_profit_days && (
-                                                    <span className="text-xs text-slate-500">| {prog.min_profit_days} profit days ({prog.profit_day_threshold_pct}%)</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                <div className="mt-4">
-                                    {added ? (
-                                        <div className="text-center text-sm text-emerald-400">
-                                            Already configured
-                                        </div>
-                                    ) : (
-                                        <button
-                                            onClick={() => handleAddFromTemplate(key)}
-                                            disabled={adding === key}
-                                            className="w-full px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:opacity-50 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-500/20 transition-all"
-                                        >
-                                            {adding === key ? "Adding..." : "Add Fund"}
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+            <div className="flex items-center justify-between mb-6">
+                <h1 className="text-3xl font-bold text-slate-100">Funds Management</h1>
+                <button
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:opacity-50 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-500/20 transition-all"
+                >
+                    <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
+                    {refreshing ? "Refreshing..." : "Refresh Templates"}
+                </button>
             </div>
 
             {/* Configured Funds */}
@@ -273,7 +186,7 @@ export default function FundsPage() {
                     {funds.length === 0 && (
                         <div className="p-12 text-center text-slate-600">
                             <p className="text-lg mb-2">No funds configured</p>
-                            <p>Click &quot;Add Fund&quot; on a template above to get started.</p>
+                            <p>Click &quot;Refresh Templates&quot; to load the latest prop firm data.</p>
                         </div>
                     )}
                 </div>

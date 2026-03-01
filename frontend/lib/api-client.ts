@@ -1,4 +1,4 @@
-import { Fund, Account, FundTemplate, FundAccountAnalytics } from "./types";
+import { Fund, Account, FundAccountAnalytics } from "./types";
 
 // API base URL
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
@@ -35,7 +35,7 @@ class ApiClient {
 
     // Accounts API
     accounts = {
-        getAll: () => this.request<Account[]>("/api/accounts"),
+        getAll: () => this.request<Account[]>("/api/accounts/"),
         getById: (id: number) => this.request<Account>(`/api/accounts/${id}`),
         create: (data: any) =>
             this.request<Account>("/api/accounts", {
@@ -63,13 +63,10 @@ class ApiClient {
 
     // Funds API
     funds = {
-        getAll: () => this.request<Fund[]>("/api/funds"),
-        getTemplates: () =>
-            this.request<{ templates: Record<string, FundTemplate> }>("/api/funds/templates"),
-        createFromTemplate: (templateKey: string) =>
-            this.request<Fund>("/api/funds/from-template", {
+        getAll: () => this.request<Fund[]>("/api/funds/"),
+        refreshTemplates: () =>
+            this.request<{ updated: string[] }>("/api/funds/refresh-templates", {
                 method: "POST",
-                body: JSON.stringify({ template_key: templateKey }),
             }),
         create: (data: any) =>
             this.request<Fund>("/api/funds", {
