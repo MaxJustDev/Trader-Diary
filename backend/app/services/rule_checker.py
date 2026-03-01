@@ -250,6 +250,17 @@ class RuleChecker:
         warnings: list = []
 
         # HARD BLOCK — account is already in violation, no new orders allowed
+
+        # Per-trade risk cap (e.g. Bootcamp: max 2% per trade)
+        if program.max_risk_per_trade_pct is not None and proposed_risk_amount > 0 and starting_balance > 0:
+            trade_risk_pct = (proposed_risk_amount / starting_balance) * 100.0
+            max_allowed = program.max_risk_per_trade_pct
+            if trade_risk_pct > max_allowed:
+                block_reasons.append(
+                    f"Trade risk {trade_risk_pct:.1f}% exceeds {max_allowed}% per-trade limit "
+                    f"(${proposed_risk_amount:.0f} > ${starting_balance * max_allowed / 100:.0f} max)"
+                )
+
         if daily_room_amount <= 0:
             over = abs(daily_room_amount)
             block_reasons.append(

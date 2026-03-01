@@ -49,6 +49,14 @@ def _migrate():
             if col not in fund_cols:
                 conn.execute(text(f"ALTER TABLE funds ADD COLUMN {col} {coltype}"))
 
+        # FundProgram table new columns
+        fp_cols = {c["name"] for c in inspector.get_columns("fund_programs")}
+        for col, coltype in [
+            ("max_risk_per_trade_pct", "FLOAT"),
+        ]:
+            if col not in fp_cols:
+                conn.execute(text(f"ALTER TABLE fund_programs ADD COLUMN {col} {coltype}"))
+
         # New tables (created via create_all above, but listed here for clarity)
         # equity_snapshots and trade_records are auto-created by Base.metadata.create_all
 

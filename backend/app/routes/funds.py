@@ -186,6 +186,7 @@ FUND_TEMPLATES = {
                 "program_name": "Bootcamp",
                 "payout_days": 14,
                 "payout_type": "on_demand",
+                "max_risk_per_trade_pct": 2.0,   # HARD RULE: max 2% risk per trade, SL mandatory
                 "phase_rules": [
                     {
                         "phase_name": "Phase 1",
@@ -294,6 +295,7 @@ def _create_fund_from_data(data: dict, db: Session) -> Fund:
             best_day_rule_pct=prog_data.get("best_day_rule_pct"),
             min_profit_days=prog_data.get("min_profit_days"),
             profit_day_threshold_pct=prog_data.get("profit_day_threshold_pct"),
+            max_risk_per_trade_pct=prog_data.get("max_risk_per_trade_pct"),
         )
         db.add(program)
         db.flush()

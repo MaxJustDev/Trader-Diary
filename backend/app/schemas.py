@@ -39,6 +39,7 @@ class FundProgramCreate(BaseModel):
     best_day_rule_pct: Optional[float] = None
     min_profit_days: Optional[int] = None
     profit_day_threshold_pct: Optional[float] = None
+    max_risk_per_trade_pct: Optional[float] = None
     phase_rules: List[FundPhaseRuleCreate]
 
 
@@ -53,6 +54,7 @@ class FundProgramResponse(BaseModel):
     best_day_rule_pct: Optional[float]
     min_profit_days: Optional[int]
     profit_day_threshold_pct: Optional[float]
+    max_risk_per_trade_pct: Optional[float]
     phase_rules: List[FundPhaseRuleResponse] = []
 
     class Config:

@@ -30,6 +30,7 @@ class FundProgram(Base):
     best_day_rule_pct = Column(Float, nullable=True)
     min_profit_days = Column(Integer, nullable=True)
     profit_day_threshold_pct = Column(Float, nullable=True)
+    max_risk_per_trade_pct = Column(Float, nullable=True)  # e.g. 2.0 for Bootcamp
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     fund = relationship("Fund", back_populates="programs")

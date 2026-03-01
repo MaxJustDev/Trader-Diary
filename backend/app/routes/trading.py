@@ -205,27 +205,34 @@ async def execute_batch(
                     # Keep daily equity tracker accurate before rule check
                     _reset_daily_equity_if_needed(account, info["equity"], info["balance"], db)
 
-                    # ── Fund rule hard-block ───────────────────────────────────
+                    # ── Position calc ──────────────────────────────────────────
+                    calc = sizer.calculate(
+                        balance=info["balance"],
+                        symbol=request.symbol,
+                        direction=request.direction,
+                        sl_price=request.sl_price,
+                        risk_type=request.risk_type,
+                        risk_value=request.risk_value,
+                        tp_price=request.tp_price,
+                    )
+
+                    # ── Full fund rule hard-block (DD + per-trade risk cap) ────
+                    # Run AFTER calc so we have the actual risk_amount to check.
                     if account.account_type == "fund" and account.fund_program_id:
-                        daily_starting = account.daily_open_equity if account.daily_open_equity else info["balance"]
-                        rule_result = checker.check_account_rules(
-                            account_type=account.account_type,
-                            fund_program_id=account.fund_program_id,
-                            current_phase=account.current_phase,
-                            balance=info["balance"],
-                            equity=info["equity"],
-                            starting_balance=account.starting_balance or info["balance"],
-                            daily_starting_equity=daily_starting,
+                        risk_amount = calc.get("risk_amount", 0.0) or 0.0
+                        rule_result = checker.get_pre_trade_status(
+                            account=account,
+                            proposed_risk_amount=risk_amount,
                         )
-                        if rule_result.get("locked"):
-                            violations = rule_result.get("violations", [])
-                            error_msg = f"Blocked by fund rules: {', '.join(violations)}"
+                        if rule_result.get("blocked"):
+                            reasons = rule_result.get("block_reasons", [])
+                            error_msg = f"Blocked: {' | '.join(reasons)}"
                             _save_trade_record(
                                 db=db,
                                 account=account,
                                 symbol=request.symbol,
                                 direction=request.direction,
-                                calc={},
+                                calc=calc,
                                 success=False,
                                 error_msg=error_msg,
                             )
@@ -238,17 +245,7 @@ async def execute_batch(
                             mt5.logout()
                             continue  # skip this account
 
-                    # ── Position calc + margin ─────────────────────────────────
-                    calc = sizer.calculate(
-                        balance=info["balance"],
-                        symbol=request.symbol,
-                        direction=request.direction,
-                        sl_price=request.sl_price,
-                        risk_type=request.risk_type,
-                        risk_value=request.risk_value,
-                        tp_price=request.tp_price,
-                    )
-
+                    # ── Margin check ───────────────────────────────────────────
                     margin_ok = True
                     if not calc.get("error") and calc.get("lot_size", 0) > 0:
                         margin_ok = sizer.validate_margin(
