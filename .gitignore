@@ -3,6 +3,10 @@
 .claude
 **/*.md
 !README.md
+!docs/
+!docs/superpowers/
+!docs/superpowers/specs/
+!docs/superpowers/specs/*.md
 
 # Python
 __pycache__/
