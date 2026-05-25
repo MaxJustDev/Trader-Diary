@@ -1,4 +1,10 @@
-# TraderDiary - Run Backend
+# TraderDiary entrypoint.
+#
+# Two modes:
+#   1. Default: boot uvicorn HTTP/WS server on port 8001.
+#   2. --worker <account_db_id>: dispatch to MT5 worker process (Batch F).
+#      Required so PyInstaller-frozen builds can spawn worker subprocesses
+#      using their own bundled exe (sys.executable) without needing python.
 import asyncio
 import os
 import sys
@@ -17,7 +23,36 @@ def get_base_dir():
     return os.path.abspath(".")
 
 
+def _dispatch_worker_if_requested() -> bool:
+    """If invoked with `--worker <account_db_id>`, run the MT5 worker and exit.
+
+    Returns True if the worker was dispatched (caller should not boot HTTP).
+    """
+    if len(sys.argv) < 2 or sys.argv[1] != "--worker":
+        return False
+    if len(sys.argv) < 3:
+        print("usage: TraderDiary.exe --worker <account_db_id>", file=sys.stderr)
+        sys.exit(2)
+
+    # Load .env before importing worker (it needs ENCRYPTION_KEY).
+    base_dir = get_base_dir()
+    env_path = os.path.join(base_dir, ".env")
+    if os.path.isfile(env_path):
+        from dotenv import load_dotenv
+        load_dotenv(env_path)
+    os.chdir(base_dir)
+
+    # Reshape argv so the worker's argparse sees [program, account_db_id].
+    sys.argv = [sys.argv[0], sys.argv[2]]
+    from app.workers.mt5_worker import main as worker_main
+    sys.exit(worker_main())
+
+
 if __name__ == "__main__":
+    # Worker mode short-circuits everything else.
+    if _dispatch_worker_if_requested():
+        sys.exit(0)
+
     base_dir = get_base_dir()
     is_frozen = getattr(sys, "frozen", False)
 

@@ -36,7 +36,6 @@ out/
 # Build artifacts
 dist/
 build/
-build.bat
 
 # Misc
 nul

@@ -65,6 +65,17 @@ class WorkerPool:
         self._python_exe = sys.executable
         self._spawn_locks: dict[int, asyncio.Lock] = {}
 
+    def _spawn_args(self, account_db_id: int) -> list[str]:
+        """Return argv for spawning a worker process.
+
+        Frozen build: re-invoke the bundled exe with `--worker <id>` so it
+        re-enters the worker dispatch path in run.py.
+        Dev: `python -m app.workers.mt5_worker <id>`.
+        """
+        if getattr(sys, "frozen", False):
+            return [self._python_exe, "--worker", str(account_db_id)]
+        return [self._python_exe, "-m", self._worker_module, str(account_db_id)]
+
     # ── Public API ───────────────────────────────────────────────────────────
     async def spawn(self, account_db_id: int) -> None:
         """Spawn a worker for the given account. Idempotent — no-op if alive."""
@@ -78,12 +89,10 @@ class WorkerPool:
                 # Dead worker still in dict — clean up before respawn.
                 self._workers.pop(account_db_id, None)
 
-            logger.info("Spawning worker for account_db_id=%d", account_db_id)
+            argv = self._spawn_args(account_db_id)
+            logger.info("Spawning worker for account_db_id=%d: %s", account_db_id, argv)
             proc = await asyncio.create_subprocess_exec(
-                self._python_exe,
-                "-m",
-                self._worker_module,
-                str(account_db_id),
+                *argv,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
