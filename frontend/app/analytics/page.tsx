@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
 import { FundAccountAnalytics } from "@/lib/types";
 import FundAccountCard from "@/components/analytics/FundAccountCard";
@@ -646,6 +647,23 @@ export default function AnalyticsPage() {
                         <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-8 text-center text-slate-600 mb-8">
                             <p className="text-lg">No fund accounts found</p>
                             <p className="text-sm mt-1">Add fund accounts and run &quot;Init All&quot; to see analytics</p>
+                            <Link
+                                href="/accounts"
+                                style={{
+                                    display: "inline-block",
+                                    marginTop: 12,
+                                    padding: "8px 16px",
+                                    borderRadius: 6,
+                                    background: "var(--cyan-dim)",
+                                    color: "var(--cyan)",
+                                    border: "1px solid var(--cyan)",
+                                    textDecoration: "none",
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                }}
+                            >
+                                Manage accounts
+                            </Link>
                         </div>
                     )}
 

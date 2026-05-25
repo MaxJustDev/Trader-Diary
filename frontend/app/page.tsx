@@ -362,6 +362,23 @@ export default function DashboardPage() {
             }}
           >
             No trades recorded yet — execute batch orders to see history
+            <Link
+              href="/trading"
+              style={{
+                display: "inline-block",
+                marginTop: 12,
+                padding: "8px 16px",
+                borderRadius: 6,
+                background: "var(--gold-dim)",
+                color: "var(--gold)",
+                border: "1px solid var(--gold)",
+                textDecoration: "none",
+                fontWeight: 600,
+                fontSize: 13,
+              }}
+            >
+              Execute first batch
+            </Link>
           </div>
         ) : (
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", overflow: "hidden" }}>

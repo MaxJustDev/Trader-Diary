@@ -289,6 +289,7 @@ export default function TradingPage() {
                             className="input-diary"
                             style={{ width: "100%", fontSize: "16px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}
                             placeholder="EURUSD"
+                            disabled={loading}
                         />
                         <kbd style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", fontSize: "10px", color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: "4px", border: "1px solid var(--border)", pointerEvents: "none" }}>
                             /
@@ -355,7 +356,7 @@ export default function TradingPage() {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "16px" }}>
                 {/* Position Sizer Form */}
-                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "22px 24px" }}>
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "22px 24px" }} aria-busy={loading}>
                     <div className="section-label" style={{ marginBottom: "16px" }}>Position Sizer</div>
                     <TradePresets
                         current={{ symbol, direction, risk_type: riskType, risk_value: riskValue }}
@@ -401,6 +402,7 @@ export default function TradingPage() {
                                     onChange={(e) => setSlPrice(e.target.value === "" ? "" : parseFloat(e.target.value))}
                                     className={inputClass}
                                     placeholder="e.g. 1.08500"
+                                    disabled={loading}
                                 />
                                 {tick && (
                                     <div className="flex gap-1">
@@ -438,6 +440,7 @@ export default function TradingPage() {
                                     onChange={(e) => setTpPrice(e.target.value === "" ? "" : parseFloat(e.target.value))}
                                     className={inputClass}
                                     placeholder="e.g. 1.09500 (optional)"
+                                    disabled={loading}
                                 />
                                 {tick && (
                                     <div className="flex gap-1">
@@ -472,6 +475,7 @@ export default function TradingPage() {
                                     <button
                                         type="button"
                                         onClick={() => setRiskType("pct")}
+                                        disabled={loading}
                                         className={`py-2 px-3 rounded-md text-sm font-medium transition-all ${riskType === "pct"
                                             ? "bg-blue-500/[0.20] text-blue-300 border border-blue-500/[0.30]"
                                             : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.06]"
@@ -482,6 +486,7 @@ export default function TradingPage() {
                                     <button
                                         type="button"
                                         onClick={() => setRiskType("fixed")}
+                                        disabled={loading}
                                         className={`py-2 px-3 rounded-md text-sm font-medium transition-all ${riskType === "fixed"
                                             ? "bg-blue-500/[0.20] text-blue-300 border border-blue-500/[0.30]"
                                             : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.06]"
@@ -498,6 +503,7 @@ export default function TradingPage() {
                                     onChange={(e) => setRiskValue(parseFloat(e.target.value) || 0)}
                                     className={inputClass}
                                     placeholder={riskType === "pct" ? "1.0" : "100"}
+                                    disabled={loading}
                                 />
                             </div>
                             <p className="text-xs text-slate-600 mt-1">
@@ -540,6 +546,7 @@ export default function TradingPage() {
                                                         }
                                                     }}
                                                     className="mr-3 w-4 h-4"
+                                                    disabled={loading}
                                                 />
                                                 <CheckCircle2 className="w-4 h-4 text-emerald-400 mr-2 flex-shrink-0" />
                                                 <span className="font-mono text-slate-100">{account.account_id}</span>
