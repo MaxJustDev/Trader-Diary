@@ -19,10 +19,11 @@ from sqlalchemy import text, inspect
 from app.routes import accounts, funds, mt5, trading, analytics
 from app.routes import news, system as system_routes
 from app.routes import mt5_v2, trading_v2
+from app.routes import settings as settings_routes
 from app.services.worker_pool import pool as worker_pool
 from app.database import engine, Base
 # Import all models so Base.metadata knows about them
-from app.models import Fund, FundProgram, FundPhaseRule, Account, EquitySnapshot, TradeRecord  # noqa: F401
+from app.models import Fund, FundProgram, FundPhaseRule, Account, EquitySnapshot, TradeRecord, AppSetting  # noqa: F401
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -56,6 +57,7 @@ def _migrate():
         for col, coltype in [
             ("name_format", "VARCHAR(200)"),
             ("account_name_patterns", "TEXT"),
+            ("mt5_base_path", "VARCHAR(500)"),
         ]:
             if col not in fund_cols:
                 conn.execute(text(f"ALTER TABLE funds ADD COLUMN {col} {coltype}"))
@@ -125,6 +127,7 @@ app.include_router(news.router, prefix="/api/news", tags=["News"])
 app.include_router(system_routes.router, prefix="/api/system", tags=["System"])
 app.include_router(mt5_v2.router, prefix="/api/mt5/v2", tags=["MT5 v2 (multi-process)"])
 app.include_router(trading_v2.router, prefix="/api/trading/v2", tags=["Trading v2 (parallel)"])
+app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settings"])
 
 
 @app.on_event("shutdown")

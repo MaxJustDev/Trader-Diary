@@ -12,6 +12,7 @@ class Fund(Base):
     server_pattern = Column(String(100), nullable=False)
     name_format = Column(String(200), nullable=True)
     account_name_patterns = Column(Text, nullable=True)  # JSON string
+    mt5_base_path = Column(String(500), nullable=True)   # broker-specific terminal install (overrides global default)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     programs = relationship("FundProgram", back_populates="fund", cascade="all, delete-orphan")

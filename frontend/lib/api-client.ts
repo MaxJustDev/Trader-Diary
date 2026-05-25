@@ -174,6 +174,35 @@ class ApiClient {
             ),
     };
 
+    // Settings API (Batch H) — app config for MT5 paths
+    settings = {
+        getAll: () =>
+            this.request<{
+                settings: { default_mt5_base_path: string | null; default_terminals_dir: string | null };
+                fund_overrides: { id: number; fund_name: string; server_pattern: string; mt5_base_path: string | null }[];
+            }>("/api/settings"),
+        upsert: (key: string, value: string | null) =>
+            this.request<{ key: string; value: string | null }>(
+                `/api/settings/${encodeURIComponent(key)}`,
+                { method: "PUT", body: JSON.stringify({ value }) },
+            ),
+        validateMt5Path: (path: string) =>
+            this.request<{ path: string; exists: boolean; has_terminal_exe: boolean; exe_path: string | null }>(
+                "/api/settings/validate-mt5-path",
+                { method: "POST", body: JSON.stringify({ path }) },
+            ),
+        validateTerminalsDir: (path: string) =>
+            this.request<{ path: string; exists: boolean; writable: boolean }>(
+                "/api/settings/validate-terminals-dir",
+                { method: "POST", body: JSON.stringify({ path }) },
+            ),
+        setFundMt5Path: (fundId: number, path: string) =>
+            this.request<{ fund_id: number; fund_name: string; mt5_base_path: string | null }>(
+                `/api/settings/funds/${fundId}/mt5-base-path`,
+                { method: "PUT", body: JSON.stringify({ path }) },
+            ),
+    };
+
     // Trading API — v2 (parallel via worker pool, Batch F Phase 4)
     // Routes path `/api/trading/v2/*`. Workers spawn on-demand for non-active
     // accounts. Each per-account MT5 call runs in parallel.
