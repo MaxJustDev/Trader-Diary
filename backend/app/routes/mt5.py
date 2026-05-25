@@ -2,9 +2,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPExce
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
 from datetime import datetime
-from app.database import get_db, SessionLocal
+from app.database import get_db
 from app.models.accounts import Account
-from app.models.equity_snapshot import EquitySnapshot
 from app.models.funds import FundProgram
 from app.services.mt5_auth import login_account
 from app.services.mt5_singleton import (
@@ -30,12 +29,13 @@ from app.config import (
     WS_RECONNECT_FAILURE_THRESHOLD,
 )
 
-# Backward-compatible aliases — to be removed in Task C5
-SNAPSHOT_INTERVAL = SNAPSHOT_INTERVAL_SECONDS
-TRAIL_CHECK_INTERVAL = TRAIL_CHECK_INTERVAL_SECONDS
-
-# In-memory trailing stops: ticket -> {trail_pips, symbol, type, digits}
-TRAILING_STOPS: dict = {}
+from app.services.mt5_streaming import (
+    TRAILING_STOPS,
+    save_snapshot,
+    maybe_reset_daily_open,
+    check_trailing_stops,
+    attempt_reconnect,
+)
 
 
 class ConnectRequest(BaseModel):
@@ -379,20 +379,20 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 if info:
                     consecutive_failures = 0
-                    if TRAILING_STOPS and (now - last_trail_time) >= TRAIL_CHECK_INTERVAL:
-                        await run_mt5(_check_trailing_stops, positions or [])
+                    if TRAILING_STOPS and (now - last_trail_time) >= TRAIL_CHECK_INTERVAL_SECONDS:
+                        await run_mt5(check_trailing_stops, positions or [])
                         last_trail_time = now
 
-                    if (now - last_snapshot_time) >= SNAPSHOT_INTERVAL:
-                        await run_db(_save_snapshot, get_connected_account_id(), info)
+                    if (now - last_snapshot_time) >= SNAPSHOT_INTERVAL_SECONDS:
+                        await run_db(save_snapshot, get_connected_account_id(), info)
                         last_snapshot_time = now
 
-                    await run_db(_maybe_reset_daily_open, get_connected_account_id(), info)
+                    await run_db(maybe_reset_daily_open, get_connected_account_id(), info)
                 else:
                     consecutive_failures += 1
                     if consecutive_failures >= WS_RECONNECT_FAILURE_THRESHOLD:
                         logger.warning("MT5 stream: %d consecutive failures, attempting reconnect...", consecutive_failures)
-                        await _attempt_reconnect(get_connected_account_id())
+                        await attempt_reconnect(get_connected_account_id())
                         consecutive_failures = 0
 
                 data = {
@@ -412,105 +412,3 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.warning("WS stream error: %s", e)
         manager.disconnect(websocket)
-
-
-async def _attempt_reconnect(account_db_id: int):
-    """Re-login to MT5 using stored credentials when stream goes stale."""
-
-    def _do_reconnect() -> bool:
-        db = SessionLocal()
-        try:
-            account = db.query(Account).filter(Account.id == account_db_id).first()
-            if not account:
-                return False
-            return login_account(account, mt5_service)
-        finally:
-            db.close()
-
-    try:
-        success = await run_mt5(_do_reconnect)
-        if success:
-            logger.info("Auto-reconnect succeeded for account %s", account_db_id)
-        else:
-            logger.warning("Auto-reconnect failed for account %s", account_db_id)
-    except Exception as e:
-        logger.warning("Auto-reconnect error: %s", e)
-
-
-def _save_snapshot(account_db_id: int, info: dict):
-    """Persist an equity snapshot to the database."""
-    try:
-        db = SessionLocal()
-        snapshot = EquitySnapshot(
-            account_db_id=account_db_id,
-            balance=info.get("balance", 0),
-            equity=info.get("equity", 0),
-            profit=info.get("profit"),
-        )
-        db.add(snapshot)
-        db.commit()
-    except Exception as e:
-        logger.warning("Failed to save equity snapshot: %s", e)
-    finally:
-        db.close()
-
-
-def _maybe_reset_daily_open(account_db_id: int, info: dict):
-    """If it's a new trading day, update daily_open_equity on the account."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    try:
-        from app.models.accounts import Account
-        db = SessionLocal()
-        account = db.query(Account).filter(Account.id == account_db_id).first()
-        if account and account.daily_open_date != today:
-            account.daily_open_equity = info.get("equity", info.get("balance", 0))
-            account.daily_open_date = today
-            db.commit()
-            logger.info("Daily open equity reset for account %s: %.2f", account_db_id, account.daily_open_equity)
-    except Exception as e:
-        logger.warning("Failed to reset daily open equity: %s", e)
-    finally:
-        db.close()
-
-
-def _check_trailing_stops(positions: list):
-    """Update SL on active trailing stops when price moves favorably."""
-    if not TRAILING_STOPS:
-        return
-    pos_map = {p["ticket"]: p for p in positions}
-    for ticket, ts in list(TRAILING_STOPS.items()):
-        pos = pos_map.get(ticket)
-        if not pos:
-            # Position closed — remove trailing stop
-            TRAILING_STOPS.pop(ticket, None)
-            continue
-
-        symbol = ts["symbol"]
-        pip_size = ts["pip_size"]
-        trail_distance = ts["trail_pips"] * pip_size
-        current_sl = pos.get("sl") or 0
-        tp = pos.get("tp") or 0
-
-        if pos["type"] == "BUY":
-            tick = _mt5.symbol_info_tick(symbol)
-            if not tick:
-                continue
-            bid = tick.bid
-            # New SL = bid - trail distance
-            new_sl = round(bid - trail_distance, ts["digits"])
-            if new_sl > current_sl + pip_size * 0.5:
-                result = mt5_service.modify_position(ticket, new_sl, tp)
-                if result.get("success"):
-                    ts["best_price"] = bid
-                    logger.info("Trail: #%d BUY SL -> %.5f (bid=%.5f)", ticket, new_sl, bid)
-        else:  # SELL
-            tick = _mt5.symbol_info_tick(symbol)
-            if not tick:
-                continue
-            ask = tick.ask
-            new_sl = round(ask + trail_distance, ts["digits"])
-            if current_sl == 0 or new_sl < current_sl - pip_size * 0.5:
-                result = mt5_service.modify_position(ticket, new_sl, tp)
-                if result.get("success"):
-                    ts["best_price"] = ask
-                    logger.info("Trail: #%d SELL SL -> %.5f (ask=%.5f)", ticket, new_sl, ask)
