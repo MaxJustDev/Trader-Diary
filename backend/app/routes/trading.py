@@ -8,7 +8,7 @@ from app.schemas import PositionCalculateRequest, BatchTradeRequest, SymbolCheck
 from app.services.mt5_service import MT5Service
 from app.services.position_sizer import PositionSizer
 from app.services.rule_checker import RuleChecker
-from app.services.encryption import decrypt_password
+from app.services.mt5_auth import login_account
 import logging
 from app.utils.async_helpers import run_mt5, run_db
 
@@ -43,10 +43,10 @@ def _reset_daily_equity_if_needed(account: Account, live_equity: float, live_bal
     db.refresh(account)
 
 
-def _check_symbol_on_account(mt5: MT5Service, account: Account, password: str, symbol: str) -> dict:
+def _check_symbol_on_account(mt5: MT5Service, account: Account, symbol: str) -> dict:
     """Sync per-account check used by check_symbol. Returns {available, tick_or_none}."""
     try:
-        if not mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
+        if not login_account(account, mt5):
             return {"available": False, "tick": None}
         symbol_info = mt5.get_symbol_info(symbol)
         available = symbol_info is not None
@@ -62,13 +62,12 @@ def _calculate_for_account(
     sizer: PositionSizer,
     checker: RuleChecker,
     account: Account,
-    password: str,
     request: "PositionCalculateRequest",
     db: Session,
 ) -> dict:
     """Sync per-account calc used by calculate_position. Returns the per-account result dict."""
     try:
-        if not mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
+        if not login_account(account, mt5):
             return {"account_id": account.account_id, "error": "login failed"}
 
         info = mt5.get_account_info()
@@ -122,19 +121,18 @@ def _prepare_for_execution(
     sizer: PositionSizer,
     checker: RuleChecker,
     account: Account,
-    password: str,
     request: "BatchTradeRequest",
     db: Session,
 ) -> dict:
     """Per-account pre-trade phase: login, calc, fund rule check, margin check.
 
     Returns dict with one of these shapes:
-      - {"ready": True, "account": ..., "password": ..., "calc": ..., "margin_ok": bool}
+      - {"ready": True, "account": ..., "calc": ..., "margin_ok": bool}
       - {"ready": False, "blocked": True, "account_id": ..., "error": ..., "calc": ..., "account": ...}
       - {"ready": False, "error": str, "account_id": ..., "account": ..., "calc": None}
     """
     try:
-        if not mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
+        if not login_account(account, mt5):
             return {"ready": False, "error": "login failed", "account_id": account.account_id, "account": account, "calc": None}
 
         info = mt5.get_account_info()
@@ -186,7 +184,6 @@ def _prepare_for_execution(
         return {
             "ready": True,
             "account": account,
-            "password": password,
             "calc": calc,
             "margin_ok": margin_ok,
         }
@@ -197,13 +194,12 @@ def _prepare_for_execution(
 def _execute_single_trade(
     mt5: MT5Service,
     account: Account,
-    password: str,
     calc: dict,
     request: "BatchTradeRequest",
 ) -> dict:
     """Per-account order phase: login + place_market_order. Returns the MT5 result dict."""
     try:
-        if not mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
+        if not login_account(account, mt5):
             return {"success": False, "error": "login failed"}
         result = mt5.place_market_order(
             symbol=request.symbol,
@@ -237,9 +233,6 @@ async def check_symbol(
     )
     account_map = {a.id: a for a in accounts}
 
-    # Decrypt once per account up front
-    pw_cache = {a.id: decrypt_password(a.password) for a in accounts}
-
     # Preserve client-requested order
     for account_id in request.account_ids:
         account = account_map.get(account_id)
@@ -247,7 +240,7 @@ async def check_symbol(
             continue
 
         outcome = await run_mt5(
-            _check_symbol_on_account, mt5, account, pw_cache[account.id], request.symbol
+            _check_symbol_on_account, mt5, account, request.symbol
         )
 
         if tick is None and outcome["tick"] is not None:
@@ -283,7 +276,6 @@ async def calculate_position(
         .all()
     )
     account_map = {a.id: a for a in accounts}
-    pw_cache = {a.id: decrypt_password(a.password) for a in accounts}
 
     results = []
     for account_id in request.account_ids:
@@ -291,7 +283,7 @@ async def calculate_position(
         if not account:
             continue
         result = await run_mt5(
-            _calculate_for_account, mt5, sizer, checker, account, pw_cache[account.id], request, db
+            _calculate_for_account, mt5, sizer, checker, account, request, db
         )
         results.append(result)
 
@@ -320,7 +312,6 @@ async def execute_batch(
         .all()
     )
     account_map = {a.id: a for a in accounts}
-    pw_cache = {a.id: decrypt_password(a.password) for a in accounts}
 
     # Phase 1: per-account pre-trade prep
     prepared = []
@@ -330,7 +321,7 @@ async def execute_batch(
         if not account:
             continue
         outcome = await run_mt5(
-            _prepare_for_execution, mt5, sizer, checker, account, pw_cache[account.id], request, db
+            _prepare_for_execution, mt5, sizer, checker, account, request, db
         )
 
         if outcome.get("blocked"):
@@ -369,7 +360,7 @@ async def execute_batch(
     for entry in prepared:
         account = entry["account"]
         calc = entry["calc"]
-        result = await run_mt5(_execute_single_trade, mt5, account, entry["password"], calc, request)
+        result = await run_mt5(_execute_single_trade, mt5, account, calc, request)
 
         success = result.get("success", False)
         order_ticket = result.get("order")

@@ -6,7 +6,7 @@ from app.database import get_db, SessionLocal
 from app.models.accounts import Account
 from app.models.equity_snapshot import EquitySnapshot
 from app.models.funds import FundProgram
-from app.services.encryption import decrypt_password
+from app.services.mt5_auth import login_account
 from app.services.mt5_singleton import (
     mt5_service,
     get_connected_account_id,
@@ -71,11 +71,6 @@ async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    try:
-        password = decrypt_password(account.password)
-    except ValueError:
-        raise HTTPException(status_code=500, detail="Failed to decrypt password")
-
     # Smart connect: only shutdown if switching to a different terminal
     new_path = account.mt5_path or mt5_service.default_exe_path()
     needs_shutdown = mt5_service.is_initialized and mt5_service.current_path != new_path
@@ -87,7 +82,7 @@ async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
             mt5_service.shutdown()
         elif same_terminal:
             logger.info("Same terminal path, skipping re-init — re-login only")
-        success = mt5_service.login(int(account.account_id), password, account.server, path=account.mt5_path)
+        success = login_account(account, mt5_service)
         if not success:
             return None
         return mt5_service.get_account_info()
@@ -428,10 +423,7 @@ async def _attempt_reconnect(account_db_id: int):
             account = db.query(Account).filter(Account.id == account_db_id).first()
             if not account:
                 return False
-            password = decrypt_password(account.password)
-            return mt5_service.login(
-                int(account.account_id), password, account.server, path=account.mt5_path
-            )
+            return login_account(account, mt5_service)
         finally:
             db.close()
 
