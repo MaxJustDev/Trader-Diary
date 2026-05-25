@@ -23,13 +23,19 @@ router = APIRouter()
 mt5_service = MT5Service()
 connected_account_id = None
 
-# How often to persist an equity snapshot (seconds)
-SNAPSHOT_INTERVAL = 60
+from app.config import (
+    SNAPSHOT_INTERVAL_SECONDS,
+    TRAIL_CHECK_INTERVAL_SECONDS,
+    WS_TICK_INTERVAL_SECONDS,
+    WS_RECONNECT_FAILURE_THRESHOLD,
+)
+
+# Backward-compatible aliases — to be removed in Task C5
+SNAPSHOT_INTERVAL = SNAPSHOT_INTERVAL_SECONDS
+TRAIL_CHECK_INTERVAL = TRAIL_CHECK_INTERVAL_SECONDS
 
 # In-memory trailing stops: ticket -> {trail_pips, symbol, type, digits}
 TRAILING_STOPS: dict = {}
-TRAIL_CHECK_INTERVAL = 5  # seconds
-_last_trail_check = 0.0
 
 
 class ConnectRequest(BaseModel):
@@ -392,7 +398,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await run_db(_maybe_reset_daily_open, connected_account_id, info)
                 else:
                     consecutive_failures += 1
-                    if consecutive_failures >= 3:
+                    if consecutive_failures >= WS_RECONNECT_FAILURE_THRESHOLD:
                         logger.warning("MT5 stream: %d consecutive failures, attempting reconnect...", consecutive_failures)
                         await _attempt_reconnect(connected_account_id)
                         consecutive_failures = 0
@@ -407,7 +413,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 await manager.send_personal_message(json.dumps(data), websocket)
 
-            await asyncio.sleep(1)
+            await asyncio.sleep(WS_TICK_INTERVAL_SECONDS)
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
