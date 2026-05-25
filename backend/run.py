@@ -1,6 +1,13 @@
 # TraderDiary - Run Backend
+import asyncio
 import os
 import sys
+
+# On Windows, ProactorEventLoop is required for asyncio subprocess transports
+# (used by the multi-process MT5 worker pool). Selector loop raises
+# NotImplementedError on create_subprocess_exec.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 
 def get_base_dir():
@@ -43,5 +50,10 @@ if __name__ == "__main__":
 
         uvicorn.run(app, host="127.0.0.1", port=8001)
     else:
-        # Dev mode: string import enables auto-reload
-        uvicorn.run("app.main:app", host="0.0.0.0", port=8001, reload=True)
+        # Dev mode. Reload disabled because uvicorn's reload worker child
+        # creates the asyncio event loop before app.main runs, defeating the
+        # Windows ProactorEventLoop policy needed for subprocess workers.
+        # Restart the server manually after backend code changes.
+        from app.main import app
+
+        uvicorn.run(app, host="0.0.0.0", port=8001)
