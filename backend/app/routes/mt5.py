@@ -6,8 +6,12 @@ from app.database import get_db, SessionLocal
 from app.models.accounts import Account
 from app.models.equity_snapshot import EquitySnapshot
 from app.models.funds import FundProgram
-from app.services.mt5_service import MT5Service
 from app.services.encryption import decrypt_password
+from app.services.mt5_singleton import (
+    mt5_service,
+    get_connected_account_id,
+    set_connected_account_id,
+)
 from app.websocket import manager
 import asyncio
 import json
@@ -18,10 +22,6 @@ import MetaTrader5 as _mt5
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Global MT5 service instance
-mt5_service = MT5Service()
-connected_account_id = None
 
 from app.config import (
     SNAPSHOT_INTERVAL_SECONDS,
@@ -65,7 +65,6 @@ class TrailingStopRequest(BaseModel):
 @router.post("/connect")
 async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
     """Connect to MT5 account. Shuts down any existing connection first."""
-    global connected_account_id
     account_id = request.account_id
 
     account = db.query(Account).filter(Account.id == account_id).first()
@@ -97,7 +96,7 @@ async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
     if info is None:
         raise HTTPException(status_code=400, detail="Failed to connect to MT5")
 
-    connected_account_id = account_id
+    set_connected_account_id(account_id)
 
     # Update stored account data
     if info:
@@ -117,13 +116,11 @@ async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
 @router.post("/disconnect")
 async def disconnect_mt5():
     """Disconnect from current MT5 account with full shutdown."""
-    global connected_account_id
-
-    if not connected_account_id:
+    if not get_connected_account_id():
         return {"message": "No account connected"}
 
     await run_mt5(mt5_service.shutdown)
-    connected_account_id = None
+    set_connected_account_id(None)
 
     return {"message": "Disconnected successfully"}
 
@@ -133,14 +130,14 @@ async def get_status():
     """Get MT5 connection status"""
     return {
         "connected": mt5_service.is_initialized,
-        "account_id": connected_account_id,
+        "account_id": get_connected_account_id(),
     }
 
 
 @router.post("/close-position")
 async def close_position(request: ClosePositionRequest):
     """Close a single open position by ticket. Must be connected to MT5."""
-    if not mt5_service.is_initialized or not connected_account_id:
+    if not mt5_service.is_initialized or not get_connected_account_id():
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
     result = await run_mt5(mt5_service.close_position, request.ticket)
@@ -153,7 +150,7 @@ async def close_position(request: ClosePositionRequest):
 @router.post("/modify-position")
 async def modify_position(request: ModifyPositionRequest):
     """Modify SL/TP on an existing open position."""
-    if not mt5_service.is_initialized or not connected_account_id:
+    if not mt5_service.is_initialized or not get_connected_account_id():
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
     result = await run_mt5(mt5_service.modify_position, request.ticket, request.sl, request.tp)
@@ -166,7 +163,7 @@ async def modify_position(request: ModifyPositionRequest):
 @router.post("/partial-close")
 async def partial_close(request: PartialCloseRequest):
     """Close a partial volume of an open position."""
-    if not mt5_service.is_initialized or not connected_account_id:
+    if not mt5_service.is_initialized or not get_connected_account_id():
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
     result = await run_mt5(mt5_service.partial_close, request.ticket, request.volume)
@@ -179,7 +176,7 @@ async def partial_close(request: PartialCloseRequest):
 @router.post("/trailing-stop/set")
 async def set_trailing_stop(request: TrailingStopRequest):
     """Activate a trailing stop for an open position (in-memory, checked every 5s on stream)."""
-    if not mt5_service.is_initialized or not connected_account_id:
+    if not mt5_service.is_initialized or not get_connected_account_id():
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
     def _sync_set_trail():
@@ -222,12 +219,12 @@ async def list_trailing_stops():
 @router.get("/risk-status")
 async def get_risk_status(db: Session = Depends(get_db)):
     """Live drawdown status for the connected account (uses live MT5 equity)."""
-    if not connected_account_id or not mt5_service.is_initialized:
+    if not get_connected_account_id() or not mt5_service.is_initialized:
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
     account = (
         db.query(Account)
-        .filter(Account.id == connected_account_id)
+        .filter(Account.id == get_connected_account_id())
         .options(joinedload(Account.fund_program).joinedload(FundProgram.phase_rules))
         .first()
     )
@@ -285,7 +282,7 @@ async def search_symbols(search: str = ""):
 @router.get("/history")
 async def get_mt5_history(days: int = 30):
     """Pull closed deals directly from MT5 terminal for the last N days."""
-    if not mt5_service.is_initialized or not connected_account_id:
+    if not mt5_service.is_initialized or not get_connected_account_id():
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
     from datetime import timedelta
@@ -349,7 +346,7 @@ async def get_server_time():
 @router.post("/close-all-positions")
 async def close_all_positions():
     """Close all open positions on the connected MT5 account."""
-    if not mt5_service.is_initialized or not connected_account_id:
+    if not mt5_service.is_initialized or not get_connected_account_id():
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
     def _sync_close_all():
@@ -380,7 +377,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            if mt5_service.is_initialized and connected_account_id:
+            if mt5_service.is_initialized and get_connected_account_id():
                 info = await run_mt5(mt5_service.get_account_info)
                 positions = await run_mt5(mt5_service.get_positions)
                 now = asyncio.get_event_loop().time()
@@ -392,20 +389,20 @@ async def websocket_endpoint(websocket: WebSocket):
                         last_trail_time = now
 
                     if (now - last_snapshot_time) >= SNAPSHOT_INTERVAL:
-                        await run_db(_save_snapshot, connected_account_id, info)
+                        await run_db(_save_snapshot, get_connected_account_id(), info)
                         last_snapshot_time = now
 
-                    await run_db(_maybe_reset_daily_open, connected_account_id, info)
+                    await run_db(_maybe_reset_daily_open, get_connected_account_id(), info)
                 else:
                     consecutive_failures += 1
                     if consecutive_failures >= WS_RECONNECT_FAILURE_THRESHOLD:
                         logger.warning("MT5 stream: %d consecutive failures, attempting reconnect...", consecutive_failures)
-                        await _attempt_reconnect(connected_account_id)
+                        await _attempt_reconnect(get_connected_account_id())
                         consecutive_failures = 0
 
                 data = {
                     "type": "update",
-                    "connected_account_id": connected_account_id,
+                    "connected_account_id": get_connected_account_id(),
                     "account_info": info,
                     "positions": positions,
                     "timestamp": datetime.now().isoformat(),
