@@ -529,6 +529,7 @@ export default function AnalyticsPage() {
                         const { exportAnalyticsPdf } = await import("@/lib/export-pdf");
                         exportAnalyticsPdf({ summary, journalStats, trades });
                     }}
+                    aria-label="Export analytics to PDF"
                     style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "rgba(240,180,41,0.08)", border: "1px solid rgba(240,180,41,0.2)", color: "var(--gold)", borderRadius: "8px", fontSize: "12px", fontWeight: 500, cursor: "pointer", fontFamily: "'Sora', sans-serif" }}
                 >
                     <FileDown size={14} /> Export PDF
@@ -536,17 +537,19 @@ export default function AnalyticsPage() {
                 <a
                     href={apiClient.system.backup()}
                     download
+                    aria-label="Backup database"
                     style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.18)", color: "var(--cyan)", borderRadius: "8px", fontSize: "12px", fontWeight: 500, textDecoration: "none", fontFamily: "'Sora', sans-serif" }}
                 >
                     <Download size={14} /> Backup DB
                 </a>
-                <label style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.18)", color: "var(--purple)", borderRadius: "8px", fontSize: "12px", fontWeight: 500, cursor: restoringDb ? "not-allowed" : "pointer", opacity: restoringDb ? 0.5 : 1, fontFamily: "'Sora', sans-serif" }}>
+                <label aria-label="Restore database from file" style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.18)", color: "var(--purple)", borderRadius: "8px", fontSize: "12px", fontWeight: 500, cursor: restoringDb ? "not-allowed" : "pointer", opacity: restoringDb ? 0.5 : 1, fontFamily: "'Sora', sans-serif" }}>
                     <Upload size={14} /> {restoringDb ? "Restoring..." : "Restore DB"}
                     <input type="file" accept=".db" onChange={handleRestore} style={{ display: "none" }} disabled={restoringDb} />
                 </label>
                 <button
                     onClick={handleRefresh}
                     disabled={refreshing}
+                    aria-label="Refresh analytics data"
                     style={{
                         padding: "8px 16px",
                         background: "rgba(34,211,238,0.08)",
@@ -747,6 +750,7 @@ export default function AnalyticsPage() {
                                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
                                         style={{ background: "rgba(240,180,41,0.08)", borderColor: "rgba(240,180,41,0.25)", color: "#f0b429" }}
                                         title="Sync realized P&L from connected MT5 terminal"
+                                        aria-label="Sync profit and loss"
                                     >
                                         {syncingPnl ? "Syncing..." : "Sync P&L"}
                                     </button>

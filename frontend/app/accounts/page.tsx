@@ -283,6 +283,7 @@ export default function AccountsPage() {
                     <button
                         onClick={() => setViewMode("cards")}
                         title="Card view"
+                        aria-label="Switch to grid view"
                         style={{
                             padding: "8px 12px",
                             background: viewMode === "cards" ? "rgba(240,180,41,0.10)" : "rgba(255,255,255,0.03)",
@@ -299,6 +300,7 @@ export default function AccountsPage() {
                     <button
                         onClick={() => setViewMode("table")}
                         title="Table view"
+                        aria-label="Switch to list view"
                         style={{
                             padding: "8px 12px",
                             background: viewMode === "table" ? "rgba(240,180,41,0.10)" : "rgba(255,255,255,0.03)",

@@ -114,6 +114,7 @@ export default function EditAccountModal({ account, funds, onSaved, onCancel }: 
                     </div>
                     <button
                         onClick={onCancel}
+                        aria-label="Close"
                         style={{ width: "28px", height: "28px", borderRadius: "7px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
                     >
                         <X size={13} />

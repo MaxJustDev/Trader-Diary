@@ -337,6 +337,7 @@ function PositionsTable() {
                                             <button
                                                 onClick={() => handleBreakEven({ ticket: pos.ticket, price_open: pos.price_open, tp: pos.tp })}
                                                 title="Move SL to entry price"
+                                                aria-label={`Move stop loss to break-even for position ${pos.ticket}`}
                                                 style={{ padding: "3px 8px", fontSize: "10px", fontWeight: 600, background: "rgba(167,139,250,0.10)", border: "1px solid rgba(167,139,250,0.22)", color: "var(--purple)", borderRadius: "5px", cursor: "pointer", transition: "all 150ms", fontFamily: "'Sora', sans-serif", marginRight: "4px" }}
                                             >
                                                 BE
@@ -344,12 +345,14 @@ function PositionsTable() {
                                             <button
                                                 onClick={() => { setPartialTicket(pos.ticket); setPartialPct(50); }}
                                                 title="Partial close"
+                                                aria-label={`Partial close position ${pos.ticket}`}
                                                 style={{ padding: "3px 8px", fontSize: "10px", fontWeight: 600, background: "rgba(34,211,238,0.10)", border: "1px solid rgba(34,211,238,0.22)", color: "var(--cyan)", borderRadius: "5px", cursor: "pointer", transition: "all 150ms", fontFamily: "'Sora', sans-serif", marginRight: "4px" }}
                                             >
                                                 ½
                                             </button>
                                             <button
                                                 onClick={() => setEditing({ ticket: pos.ticket, sl: String(pos.sl || 0), tp: String(pos.tp || 0) })}
+                                                aria-label={`Modify stop loss and take profit for position ${pos.ticket}`}
                                                 style={{ padding: "3px 9px", fontSize: "10px", fontWeight: 600, background: "rgba(240,180,41,0.10)", border: "1px solid rgba(240,180,41,0.22)", color: "var(--gold)", borderRadius: "5px", cursor: "pointer", transition: "all 150ms", fontFamily: "'Sora', sans-serif", marginRight: "4px" }}
                                             >
                                                 Edit
@@ -358,6 +361,7 @@ function PositionsTable() {
                                                 <button
                                                     onClick={() => handleRemoveTrail(pos.ticket)}
                                                     title="Remove trailing stop"
+                                                    aria-label={`Remove trailing stop for position ${pos.ticket}`}
                                                     style={{ padding: "3px 8px", fontSize: "10px", fontWeight: 600, background: "rgba(34,211,238,0.15)", border: "1px solid rgba(34,211,238,0.4)", color: "var(--cyan)", borderRadius: "5px", cursor: "pointer", transition: "all 150ms", fontFamily: "'Sora', sans-serif", marginRight: "4px" }}
                                                 >
                                                     Trail ✓
@@ -366,6 +370,7 @@ function PositionsTable() {
                                                 <button
                                                     onClick={() => { setTrailTicket(pos.ticket); setTrailPips("20"); }}
                                                     title="Set trailing stop"
+                                                    aria-label={`Set trailing stop for position ${pos.ticket}`}
                                                     style={{ padding: "3px 8px", fontSize: "10px", fontWeight: 600, background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "5px", cursor: "pointer", transition: "all 150ms", fontFamily: "'Sora', sans-serif", marginRight: "4px" }}
                                                 >
                                                     Trail
@@ -374,6 +379,7 @@ function PositionsTable() {
                                             <button
                                                 onClick={() => setConfirmTicket(pos.ticket)}
                                                 disabled={closing === pos.ticket || closingAll}
+                                                aria-label={`Close position ${pos.ticket}`}
                                                 style={{ padding: "3px 10px", fontSize: "10px", fontWeight: 600, background: "rgba(248,113,113,0.10)", border: "1px solid rgba(248,113,113,0.22)", color: "var(--rose)", borderRadius: "5px", cursor: (closing === pos.ticket || closingAll) ? "not-allowed" : "pointer", opacity: (closing === pos.ticket || closingAll) ? 0.5 : 1, transition: "all 150ms", fontFamily: "'Sora', sans-serif" }}
                                             >
                                                 {closing === pos.ticket ? "..." : "Close"}

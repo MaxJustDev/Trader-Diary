@@ -13,44 +13,21 @@ interface Props {
     onEdit: () => void;
 }
 
-function ProgressBar({
-    label,
-    current,
-    limit,
-    status,
-}: {
-    label: string;
-    current: number;
-    limit: number;
-    status: "ok" | "warning" | "violated";
+function ProgressBar({ label, current, limit, status }: {
+    label: string; current: number; limit: number; status: "ok" | "warning" | "violated";
 }) {
     const pct = limit > 0 ? Math.min((current / limit) * 100, 100) : 0;
-    const barColor =
-        status === "violated"
-            ? "bg-red-500"
-            : status === "warning"
-              ? "bg-amber-500"
-              : "bg-emerald-500";
-    const textColor =
-        status === "violated"
-            ? "text-red-400"
-            : status === "warning"
-              ? "text-amber-400"
-              : "text-slate-400";
-
+    const color = status === "violated" ? "var(--rose)" : status === "warning" ? "var(--amber)" : "var(--emerald)";
     return (
-        <div className="mb-2">
-            <div className="flex justify-between text-xs mb-1">
-                <span className="text-slate-400">{label}</span>
-                <span className={textColor}>
+        <div style={{ marginBottom: "10px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
+                <span style={{ fontSize: "10px", color: "var(--text-muted)", letterSpacing: "0.04em" }}>{label}</span>
+                <span style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace", color, fontWeight: 600 }}>
                     {current.toFixed(2)}% / {limit}%
                 </span>
             </div>
-            <div className="w-full bg-white/[0.08] rounded-full h-1.5">
-                <div
-                    className={`${barColor} h-1.5 rounded-full transition-all duration-300`}
-                    style={{ width: `${pct}%` }}
-                />
+            <div style={{ height: "3px", background: "rgba(255,255,255,0.06)", borderRadius: "99px", overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: "99px", transition: "width 400ms ease", boxShadow: `0 0 6px ${color}60` }} />
             </div>
         </div>
     );
@@ -58,10 +35,7 @@ function ProgressBar({
 
 function getStaleness(updatedAt?: string): string {
     if (!updatedAt) return "Never synced";
-    const then = new Date(updatedAt).getTime();
-    const now = Date.now();
-    const diffMs = now - then;
-    const diffMin = Math.floor(diffMs / 60000);
+    const diffMin = Math.floor((Date.now() - new Date(updatedAt).getTime()) / 60000);
     if (diffMin < 1) return "Just now";
     if (diffMin < 60) return `${diffMin}m ago`;
     const diffH = Math.floor(diffMin / 60);
@@ -69,155 +43,119 @@ function getStaleness(updatedAt?: string): string {
     return `${Math.floor(diffH / 24)}d ago`;
 }
 
-export default function AccountCard({
-    account,
-    analytics,
-    isConnected,
-    isConnecting,
-    isDeleting,
-    onConnect,
-    onDelete,
-    onEdit,
-}: Props) {
+export default function AccountCard({ account, analytics, isConnected, isConnecting, isDeleting, onConnect, onDelete, onEdit }: Props) {
     const profit = account.profit ?? 0;
-    const profitColor =
-        profit > 0 ? "text-emerald-400" : profit < 0 ? "text-red-400" : "text-slate-400";
+    const profitColor = profit > 0 ? "var(--emerald)" : profit < 0 ? "var(--rose)" : "var(--text-muted)";
 
-    const formatMoney = (v?: number) =>
-        v == null
-            ? "—"
-            : v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmt = (v?: number) =>
+        v == null ? "—" : v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const profitPct = analytics?.profit_pct ?? 0;
     const profitTarget = analytics?.profit_target ?? null;
-    const profitProgress =
-        profitTarget && profitTarget > 0
-            ? Math.min(Math.max((profitPct / profitTarget) * 100, 0), 100)
-            : 0;
-    const profitBarColor = analytics?.profit_achieved
-        ? "bg-emerald-500"
-        : profitPct < 0
-          ? "bg-red-500"
-          : "bg-blue-500";
+    const profitProgress = profitTarget && profitTarget > 0 ? Math.min(Math.max((profitPct / profitTarget) * 100, 0), 100) : 0;
+    const profitBarColor = analytics?.profit_achieved ? "var(--emerald)" : profitPct < 0 ? "var(--rose)" : "var(--cyan)";
 
-    const ringClass = analytics?.locked
-        ? "border-red-500/60 ring-1 ring-red-500/30"
-        : isConnected
-          ? "border-emerald-500/50 ring-1 ring-emerald-500/20"
-          : "";
+    const borderColor = analytics?.locked ? "rgba(248,113,113,0.35)" : isConnected ? "rgba(52,211,153,0.35)" : "var(--border)";
+    const glowColor = analytics?.locked ? "rgba(248,113,113,0.08)" : isConnected ? "rgba(52,211,153,0.06)" : "transparent";
 
     return (
-        <div
-            className={`bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-xl overflow-hidden flex flex-col ${ringClass}`}
-        >
+        <div style={{
+            background: "var(--surface)",
+            border: `1px solid ${borderColor}`,
+            borderRadius: "14px",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            transition: "border-color 200ms",
+            boxShadow: analytics?.locked ? "0 0 20px rgba(248,113,113,0.08)" : isConnected ? "0 0 20px rgba(52,211,153,0.06)" : "none",
+        }}>
             {/* Locked banner */}
             {analytics?.locked && (
-                <div className="bg-red-600 text-white text-xs px-4 py-1 font-medium">
-                    Locked — {analytics.violations.join(", ")}
+                <div style={{ background: "rgba(248,113,113,0.15)", borderBottom: "1px solid rgba(248,113,113,0.25)", padding: "6px 14px", fontSize: "11px", fontWeight: 600, color: "var(--rose)", letterSpacing: "0.04em" }}>
+                    LOCKED — {analytics.violations.join(", ")}
                 </div>
             )}
 
-            {/* Main content */}
-            <div className="p-4 flex-1">
-                {/* Top row: status dot + badges */}
-                <div className="flex items-center gap-2 mb-2 flex-wrap">
-                    <span
-                        className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`}
-                        title={isConnected ? "Connected (live)" : "Offline"}
-                    />
-                    <span
-                        className={`text-xs px-2 py-0.5 rounded border font-medium ${
-                            account.account_type === "fund"
-                                ? "bg-purple-500/[0.15] text-purple-300 border-purple-500/[0.20]"
-                                : "bg-white/[0.08] text-slate-400 border-transparent"
-                        }`}
-                    >
+            {/* Top accent line */}
+            {!analytics?.locked && (
+                <div style={{ height: "1.5px", background: isConnected ? "linear-gradient(90deg, var(--emerald), transparent)" : "linear-gradient(90deg, rgba(255,255,255,0.06), transparent)" }} />
+            )}
+
+            {/* Body */}
+            <div style={{ padding: "14px 16px", flex: 1 }}>
+                {/* Badges row */}
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "10px", flexWrap: "wrap" }}>
+                    {/* Connection dot */}
+                    <div style={{
+                        width: "6px", height: "6px", borderRadius: "50%", flexShrink: 0,
+                        background: isConnected ? "var(--emerald)" : "var(--text-dim)",
+                        boxShadow: isConnected ? "0 0 6px var(--emerald)" : "none",
+                        animation: isConnected ? "live-pulse 2.4s ease-in-out infinite" : "none",
+                    }} />
+                    <span style={{
+                        display: "inline-flex", alignItems: "center", padding: "2px 7px",
+                        borderRadius: "99px", fontSize: "10px", fontWeight: 500,
+                        background: account.account_type === "fund" ? "var(--purple-dim)" : "rgba(255,255,255,0.05)",
+                        color: account.account_type === "fund" ? "var(--purple)" : "var(--text-muted)",
+                        border: `1px solid ${account.account_type === "fund" ? "rgba(167,139,250,0.22)" : "transparent"}`,
+                    }}>
                         {account.account_type === "fund" ? "Fund" : "Personal"}
                     </span>
                     {account.current_phase && (
-                        <span className="text-xs px-2 py-0.5 rounded border bg-blue-500/[0.15] text-blue-300 border-blue-500/[0.20]">
+                        <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: "99px", fontSize: "10px", fontWeight: 500, background: "rgba(34,211,238,0.08)", color: "var(--cyan)", border: "1px solid rgba(34,211,238,0.2)" }}>
                             {account.current_phase}
                         </span>
                     )}
                 </div>
 
                 {/* Identity */}
-                <p className="text-xl font-mono font-bold leading-tight text-slate-100">{account.account_id}</p>
+                <div style={{ fontSize: "18px", fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: "#f0f4f8", lineHeight: 1.2, marginBottom: "2px" }}>
+                    {account.account_id}
+                </div>
                 {account.mt5_name && (
-                    <p
-                        className="text-sm text-slate-400 truncate"
-                        title={account.mt5_name}
-                    >
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: "1px" }} title={account.mt5_name}>
                         {account.mt5_name}
-                    </p>
+                    </div>
                 )}
-                <p className="text-xs text-slate-600 mt-0.5">{account.server}</p>
+                <div style={{ fontSize: "10px", color: "var(--text-dim)", letterSpacing: "0.04em" }}>{account.server}</div>
 
-                {/* Fund + Program */}
                 {analytics && (analytics.fund_name || analytics.program_name) && (
-                    <p className="text-xs text-purple-400 mt-1 truncate">
-                        {analytics.fund_name}
-                        {analytics.program_name ? ` · ${analytics.program_name}` : ""}
-                    </p>
+                    <div style={{ fontSize: "11px", color: "var(--purple)", marginTop: "4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {analytics.fund_name}{analytics.program_name ? ` · ${analytics.program_name}` : ""}
+                    </div>
                 )}
 
                 {/* Financials */}
-                <div className="flex gap-4 mt-3 text-sm">
-                    <div>
-                        <p className="text-xs text-slate-500">Balance</p>
-                        <p className="font-mono font-semibold text-slate-100">{formatMoney(account.balance)}</p>
-                    </div>
-                    <div>
-                        <p className="text-xs text-slate-500">Equity</p>
-                        <p className="font-mono font-semibold text-slate-100">{formatMoney(account.equity)}</p>
-                    </div>
-                    <div>
-                        <p className="text-xs text-slate-500">Profit</p>
-                        <p className={`font-mono font-semibold ${profitColor}`}>
-                            {profit >= 0 ? "+" : ""}
-                            {formatMoney(account.profit)}
-                        </p>
-                    </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", marginTop: "12px" }}>
+                    {[
+                        { label: "Balance", value: fmt(account.balance), color: "var(--text-soft)" },
+                        { label: "Equity", value: fmt(account.equity), color: "var(--text-soft)" },
+                        { label: "Profit", value: `${profit >= 0 ? "+" : ""}${fmt(account.profit)}`, color: profitColor },
+                    ].map(({ label, value, color }) => (
+                        <div key={label}>
+                            <div style={{ fontSize: "9px", color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "3px" }}>{label}</div>
+                            <div style={{ fontSize: "12px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color }}>{value}</div>
+                        </div>
+                    ))}
                 </div>
 
-                {/* Fund rules progress bars */}
+                {/* Progress bars */}
                 {analytics && (
-                    <div className="mt-3 pt-3 border-t border-white/[0.08]">
-                        <ProgressBar
-                            label="Daily DD"
-                            current={analytics.daily_loss_pct}
-                            limit={analytics.daily_drawdown_limit}
-                            status={analytics.daily_status}
-                        />
-                        <ProgressBar
-                            label={`Max DD (${analytics.drawdown_type})`}
-                            current={analytics.max_loss_pct}
-                            limit={analytics.max_drawdown_limit}
-                            status={analytics.max_dd_status}
-                        />
+                    <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border)" }}>
+                        <ProgressBar label="Daily DD" current={analytics.daily_loss_pct} limit={analytics.daily_drawdown_limit} status={analytics.daily_status} />
+                        <ProgressBar label={`Max DD (${analytics.drawdown_type})`} current={analytics.max_loss_pct} limit={analytics.max_drawdown_limit} status={analytics.max_dd_status} />
                         {profitTarget !== null && (
-                            <div className="mb-2">
-                                <div className="flex justify-between text-xs mb-1">
-                                    <span className="text-slate-400">
-                                        Profit Target
-                                        {analytics.profit_achieved && (
-                                            <span className="ml-1 text-emerald-400">✓</span>
-                                        )}
+                            <div style={{ marginBottom: "10px" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
+                                    <span style={{ fontSize: "10px", color: "var(--text-muted)", letterSpacing: "0.04em" }}>
+                                        Profit Target {analytics.profit_achieved && <span style={{ color: "var(--emerald)" }}>✓</span>}
                                     </span>
-                                    <span
-                                        className={
-                                            profitPct >= 0 ? "text-emerald-400" : "text-red-400"
-                                        }
-                                    >
-                                        {profitPct >= 0 ? "+" : ""}
-                                        {profitPct.toFixed(2)}% / {profitTarget}%
+                                    <span style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace", color: profitPct >= 0 ? "var(--emerald)" : "var(--rose)", fontWeight: 600 }}>
+                                        {profitPct >= 0 ? "+" : ""}{profitPct.toFixed(2)}% / {profitTarget}%
                                     </span>
                                 </div>
-                                <div className="w-full bg-white/[0.08] rounded-full h-1.5">
-                                    <div
-                                        className={`${profitBarColor} h-1.5 rounded-full transition-all duration-300`}
-                                        style={{ width: `${profitProgress}%` }}
-                                    />
+                                <div style={{ height: "3px", background: "rgba(255,255,255,0.06)", borderRadius: "99px", overflow: "hidden" }}>
+                                    <div style={{ height: "100%", width: `${profitProgress}%`, background: profitBarColor, borderRadius: "99px", transition: "width 400ms ease" }} />
                                 </div>
                             </div>
                         )}
@@ -226,30 +164,33 @@ export default function AccountCard({
             </div>
 
             {/* Footer */}
-            <div className="px-4 py-3 border-t border-white/[0.08] flex items-center justify-between">
-                <span className="text-xs text-slate-600">{getStaleness(account.updated_at)}</span>
-                <div className="flex gap-2">
+            <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.01)" }}>
+                <span style={{ fontSize: "10px", color: "var(--text-dim)", letterSpacing: "0.04em" }}>{getStaleness(account.updated_at)}</span>
+                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                     {isConnected ? (
-                        <span className="text-xs text-emerald-400 font-medium">Live</span>
+                        <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--emerald)", letterSpacing: "0.06em" }}>● LIVE</span>
                     ) : (
                         <button
                             onClick={onConnect}
                             disabled={isConnecting}
-                            className="text-xs px-3 py-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded disabled:opacity-50 shadow-lg shadow-emerald-500/20 transition-all"
+                            aria-label="Connect to MT5"
+                            style={{ padding: "5px 11px", fontSize: "11px", fontWeight: 600, background: "rgba(52,211,153,0.10)", border: "1px solid rgba(52,211,153,0.25)", color: "var(--emerald)", borderRadius: "6px", cursor: isConnecting ? "not-allowed" : "pointer", opacity: isConnecting ? 0.5 : 1, transition: "all 150ms", fontFamily: "'Sora', sans-serif" }}
                         >
                             {isConnecting ? "..." : "Connect"}
                         </button>
                     )}
                     <button
                         onClick={onEdit}
-                        className="text-xs px-3 py-1 bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.10] text-slate-300 rounded transition-all"
+                        aria-label="Edit account"
+                        style={{ padding: "5px 11px", fontSize: "11px", fontWeight: 500, background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", color: "var(--text-muted)", borderRadius: "6px", cursor: "pointer", transition: "all 150ms", fontFamily: "'Sora', sans-serif" }}
                     >
                         Edit
                     </button>
                     <button
                         onClick={onDelete}
                         disabled={isDeleting}
-                        className="text-xs px-3 py-1 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white rounded disabled:opacity-50 shadow-lg shadow-red-500/20 transition-all"
+                        aria-label="Delete account"
+                        style={{ padding: "5px 11px", fontSize: "11px", fontWeight: 500, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "var(--rose)", borderRadius: "6px", cursor: isDeleting ? "not-allowed" : "pointer", opacity: isDeleting ? 0.5 : 1, transition: "all 150ms", fontFamily: "'Sora', sans-serif" }}
                     >
                         {isDeleting ? "..." : "Delete"}
                     </button>

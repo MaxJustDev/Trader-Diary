@@ -8,6 +8,9 @@ import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { CheckCircle2, XCircle, ShieldAlert, ShieldCheck, AlertTriangle } from "lucide-react";
+import SessionClock from "@/components/ui/SessionClock";
+import PriceAlertsPanel from "@/components/ui/PriceAlertsPanel";
+import TradePresets from "@/components/trading/TradePresets";
 
 const TradingViewWidget = dynamic(
     () => import("@/components/charts/TradingViewWidget"),
@@ -44,6 +47,8 @@ export default function TradingPage() {
     const [showExecuteConfirm, setShowExecuteConfirm] = useState(false);
     const [execResults, setExecResults] = useState<any[] | null>(null);
     const [tickUpdatedAt, setTickUpdatedAt] = useState<Date | null>(null);
+    const [symbolSuggestions, setSymbolSuggestions] = useState<string[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
     const symbolInputRef = useRef<HTMLInputElement>(null);
 
     const [chartSymbol, setChartSymbol] = useState(symbol);
@@ -119,6 +124,20 @@ export default function TradingPage() {
         }, 30000);
         return () => clearInterval(interval);
     }, [symbolChecked, symbol, accounts, checkSymbolAvailability]);
+
+    // Symbol autocomplete: search when typing (only if MT5 is connected)
+    useEffect(() => {
+        if (!symbol.trim() || symbol.length < 2) { setSymbolSuggestions([]); return; }
+        const timer = setTimeout(async () => {
+            try {
+                const results = await apiClient.mt5.searchSymbols(symbol);
+                setSymbolSuggestions(results.filter((s) => s !== symbol));
+            } catch {
+                setSymbolSuggestions([]);
+            }
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [symbol]);
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
@@ -246,51 +265,77 @@ export default function TradingPage() {
     const quickBtnClass = "px-3 py-1 text-xs bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.10] rounded-lg font-mono text-slate-400 transition-all";
 
     return (
-        <div className="p-8">
-            <h1 className="text-3xl font-bold mb-6 text-slate-100">Position Sizer</h1>
+        <div className="page-enter" style={{ padding: "clamp(16px, 3vw, 36px)" }}>
+            <div style={{ marginBottom: "24px" }}>
+                <div className="section-label" style={{ marginBottom: "4px" }}>Trading Journal</div>
+                <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#f0f4f8", margin: 0, letterSpacing: "-0.01em" }}>
+                    Position Sizer
+                </h1>
+            </div>
 
             {/* Symbol Bar + Chart */}
-            <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-xl mb-8 overflow-hidden">
-                <div className="flex items-center gap-3 p-4 border-b border-white/[0.08]">
-                    <label className="font-medium whitespace-nowrap text-slate-300">Symbol:</label>
-                    <div className="relative flex-1 max-w-xs">
+            <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", marginBottom: "24px", overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
+                    <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)", whiteSpace: "nowrap", letterSpacing: "0.05em", textTransform: "uppercase" }}>Symbol</label>
+                    <div style={{ position: "relative", flex: 1, maxWidth: "240px" }}>
                         <input
                             ref={symbolInputRef}
                             type="text"
                             value={symbol}
-                            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-                            className="w-full p-2.5 bg-white/[0.06] border border-white/[0.10] rounded-lg text-slate-100 font-mono text-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setShowSuggestions(true); }}
+                            onFocus={() => setShowSuggestions(true)}
+                            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                            onKeyDown={(e) => { if (e.key === "Escape") setShowSuggestions(false); }}
+                            className="input-diary"
+                            style={{ width: "100%", fontSize: "16px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}
                             placeholder="EURUSD"
                         />
-                        <kbd className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 bg-white/[0.06] px-1.5 py-0.5 rounded border border-white/[0.10] pointer-events-none">
+                        <kbd style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", fontSize: "10px", color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: "4px", border: "1px solid var(--border)", pointerEvents: "none" }}>
                             /
                         </kbd>
+                        {showSuggestions && symbolSuggestions.length > 0 && (
+                            <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#0d1117", border: "1px solid var(--border)", borderRadius: "8px", overflow: "hidden", zIndex: 100, maxHeight: "240px", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+                                {symbolSuggestions.map((s) => (
+                                    <div
+                                        key={s}
+                                        onMouseDown={() => { setSymbol(s); setShowSuggestions(false); }}
+                                        style={{ padding: "8px 12px", fontSize: "13px", fontFamily: "'JetBrains Mono', monospace", color: "#f0f4f8", cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+                                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.06)")}
+                                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                                    >
+                                        {s}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                     {checkingSymbol && (
-                        <span className="text-sm text-blue-400 animate-pulse">Checking accounts...</span>
+                        <span style={{ fontSize: "12px", color: "var(--cyan)", animation: "fade-in 0.2s" }}>Checking...</span>
                     )}
                     {symbolChecked && !checkingSymbol && (
-                        <span className="text-sm text-slate-500">
-                            {availableAccounts.length}/{accounts.length} accounts available
+                        <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                            {availableAccounts.length}/{accounts.length} available
                         </span>
                     )}
                     {tick && !checkingSymbol && (
-                        <div className="ml-auto flex items-center gap-3 font-mono text-sm">
-                            {tickAge && <span className="text-xs text-slate-500 font-sans">{tickAge}</span>}
-                            <span className="text-slate-500">Bid:</span>
+                        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "12px", fontFamily: "'JetBrains Mono', monospace", fontSize: "13px" }}>
+                            {tickAge && <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "'Sora', sans-serif" }}>{tickAge}</span>}
+                            <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>Bid</span>
                             <button
                                 onClick={() => setSlPrice(tick.bid)}
-                                className="text-red-400 hover:text-red-300 hover:underline cursor-pointer font-bold"
+                                style={{ color: "var(--rose)", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: "14px" }}
                                 title="Click to set as SL"
+                                aria-label="Use bid price as stop loss"
                             >
                                 {tick.bid}
                             </button>
-                            <span className="text-slate-600">|</span>
-                            <span className="text-slate-500">Ask:</span>
+                            <span style={{ color: "var(--text-dim)" }}>|</span>
+                            <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>Ask</span>
                             <button
                                 onClick={() => setTpPrice(tick.ask)}
-                                className="text-emerald-400 hover:text-emerald-300 hover:underline cursor-pointer font-bold"
+                                style={{ color: "var(--emerald)", fontWeight: 700, background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: "14px" }}
                                 title="Click to set as TP"
+                                aria-label="Use ask price as take profit"
                             >
                                 {tick.ask}
                             </button>
@@ -302,10 +347,20 @@ export default function TradingPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Session Clock + Price Alerts row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "24px" }}>
+                <SessionClock />
+                <PriceAlertsPanel symbol={symbol} tick={tick} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "16px" }}>
                 {/* Position Sizer Form */}
-                <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-xl p-6">
-                    <h2 className="text-xl font-semibold mb-4 text-slate-100">Position Sizer</h2>
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "22px 24px" }}>
+                    <div className="section-label" style={{ marginBottom: "16px" }}>Position Sizer</div>
+                    <TradePresets
+                        current={{ symbol, direction, risk_type: riskType, risk_value: riskValue }}
+                        onLoad={(p) => { setSymbol(p.symbol); setDirection(p.direction); setRiskType(p.risk_type); setRiskValue(p.risk_value); }}
+                    />
 
                     <div className="space-y-4">
                         {/* Direction */}
@@ -354,6 +409,7 @@ export default function TradingPage() {
                                             onClick={() => setSlPrice(tick.bid)}
                                             className={`${quickBtnClass} hover:bg-red-500/[0.10] hover:border-red-500/[0.30] hover:text-red-300`}
                                             title="Use current Bid price"
+                                            aria-label="Use bid price as stop loss"
                                         >
                                             Bid
                                         </button>
@@ -362,6 +418,7 @@ export default function TradingPage() {
                                             onClick={() => setSlPrice(tick.ask)}
                                             className={`${quickBtnClass} hover:bg-red-500/[0.10] hover:border-red-500/[0.30] hover:text-red-300`}
                                             title="Use current Ask price"
+                                            aria-label="Use ask price as stop loss"
                                         >
                                             Ask
                                         </button>
@@ -389,6 +446,7 @@ export default function TradingPage() {
                                             onClick={() => setTpPrice(tick.bid)}
                                             className={`${quickBtnClass} hover:bg-emerald-500/[0.10] hover:border-emerald-500/[0.30] hover:text-emerald-300`}
                                             title="Use current Bid price"
+                                            aria-label="Use bid price as take profit"
                                         >
                                             Bid
                                         </button>
@@ -397,6 +455,7 @@ export default function TradingPage() {
                                             onClick={() => setTpPrice(tick.ask)}
                                             className={`${quickBtnClass} hover:bg-emerald-500/[0.10] hover:border-emerald-500/[0.30] hover:text-emerald-300`}
                                             title="Use current Ask price"
+                                            aria-label="Use ask price as take profit"
                                         >
                                             Ask
                                         </button>
@@ -524,8 +583,8 @@ export default function TradingPage() {
                 </div>
 
                 {/* Order Preview */}
-                <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-xl p-6">
-                    <h2 className="text-xl font-semibold mb-4 text-slate-100">Order Preview</h2>
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", padding: "22px 24px" }}>
+                    <div className="section-label" style={{ marginBottom: "16px" }}>Order Preview</div>
 
                     {execResults && (
                         <div className="mb-4">
