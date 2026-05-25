@@ -46,6 +46,7 @@ def _migrate():
             ("daily_open_equity", "FLOAT"),
             ("daily_open_date", "VARCHAR(10)"),
             ("peak_eod_balance", "FLOAT"),
+            ("symbol_aliases", "TEXT"),
         ]:
             if col not in acct_cols:
                 conn.execute(text(f"ALTER TABLE accounts ADD COLUMN {col} {coltype}"))

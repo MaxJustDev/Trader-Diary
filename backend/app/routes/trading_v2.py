@@ -27,6 +27,7 @@ from app.schemas import (
 )
 from app.services.position_sizer import PositionSizer
 from app.services.rule_checker import RuleChecker
+from app.services.symbol_resolver import parse_aliases, resolve_symbol
 from app.services.worker_pool import WorkerError, WorkerNotRunning, pool
 from datetime import datetime
 
@@ -125,36 +126,50 @@ def _reset_daily_equity_if_needed(account: Account, live_equity: float, live_bal
 # ── /check-symbol — parallel availability check ───────────────────────────────
 @router.post("/check-symbol")
 async def check_symbol_v2(request: SymbolCheckRequest, db: Session = Depends(get_db)):
-    """Per-account symbol availability + first available tick. All workers in parallel."""
-    accounts = (
-        db.query(Account).filter(Account.id.in_(request.account_ids)).all()
-    )
+    """Per-account symbol availability with broker-variant resolution.
+
+    Each account runs the symbol resolver in parallel. The response includes
+    the resolved symbol name (which may differ from `request.symbol`) and a
+    list of alternatives the UI can show if the user wants to pick manually.
+    """
+    accounts = db.query(Account).filter(Account.id.in_(request.account_ids)).all()
     account_map = {a.id: a for a in accounts}
 
     async def check_one(account: Account) -> dict:
         ok = await _ensure_worker(account.id)
         if not ok:
-            return {"account_id": account.account_id, "id": account.id, "available": False, "tick": None}
-        try:
-            sym_info = await pool.call(account.id, "get_symbol_info", {"symbol": request.symbol})
-            available = sym_info is not None
-            tick = None
-            if available:
-                tick = await pool.call(account.id, "get_tick_price", {"symbol": request.symbol})
             return {
                 "account_id": account.account_id,
                 "id": account.id,
-                "available": available,
-                "tick": tick,
+                "available": False,
+                "resolved_symbol": None,
+                "confidence": "not_found",
+                "alternatives": [],
+                "tick": None,
             }
-        except (WorkerError, WorkerNotRunning, asyncio.TimeoutError) as e:
-            logger.warning("check_symbol worker call failed account=%d: %s", account.id, e)
-            return {"account_id": account.account_id, "id": account.id, "available": False, "tick": None}
+        aliases = parse_aliases(account.symbol_aliases)
+        result = await resolve_symbol(pool, account.id, request.symbol, aliases)
+        tick = None
+        if result.available and result.resolved:
+            try:
+                tick = await pool.call(account.id, "get_tick_price", {"symbol": result.resolved})
+            except (WorkerError, WorkerNotRunning, asyncio.TimeoutError) as e:
+                logger.warning("get_tick_price failed account=%d: %s", account.id, e)
+        return {
+            "account_id": account.account_id,
+            "id": account.id,
+            "available": result.available,
+            "resolved_symbol": result.resolved,
+            "confidence": result.confidence,
+            "alternatives": result.alternatives,
+            "tick": tick,
+        }
 
-    results = await asyncio.gather(*[check_one(account_map[aid]) for aid in request.account_ids if aid in account_map])
+    results = await asyncio.gather(
+        *[check_one(account_map[aid]) for aid in request.account_ids if aid in account_map]
+    )
 
     tick = next((r["tick"] for r in results if r["tick"] is not None), None)
-    # Strip per-account tick from result list (v1 shape only had top-level tick)
     out = [{k: v for k, v in r.items() if k != "tick"} for r in results]
     return {"results": out, "tick": tick}
 
@@ -172,11 +187,20 @@ async def calculate_position_v2(request: PositionCalculateRequest, db: Session =
     async def calc_one(account: Account) -> dict:
         if not await _ensure_worker(account.id):
             return {"account_id": account.account_id, "error": "worker not ready"}
+        aliases = parse_aliases(account.symbol_aliases)
+        resolved = await resolve_symbol(pool, account.id, request.symbol, aliases)
+        if not resolved.available or not resolved.resolved:
+            return {
+                "account_id": account.account_id,
+                "error": "symbol not available on this account",
+                "alternatives": resolved.alternatives,
+            }
+        symbol = resolved.resolved
         try:
             info, sym_info, tick = await asyncio.gather(
                 pool.call(account.id, "get_account_info"),
-                pool.call(account.id, "get_symbol_info", {"symbol": request.symbol}),
-                pool.call(account.id, "get_tick_price", {"symbol": request.symbol}),
+                pool.call(account.id, "get_symbol_info", {"symbol": symbol}),
+                pool.call(account.id, "get_tick_price", {"symbol": symbol}),
             )
         except (WorkerError, WorkerNotRunning, asyncio.TimeoutError) as e:
             return {"account_id": account.account_id, "error": f"worker call failed: {e}"}
@@ -189,7 +213,7 @@ async def calculate_position_v2(request: PositionCalculateRequest, db: Session =
         sizer = PositionSizer(_PreFetchedMT5(sym_info, tick))
         calc = sizer.calculate(
             balance=info["balance"],
-            symbol=request.symbol,
+            symbol=symbol,
             direction=request.direction,
             sl_price=request.sl_price,
             risk_type=request.risk_type,
@@ -212,6 +236,8 @@ async def calculate_position_v2(request: PositionCalculateRequest, db: Session =
         return {
             "account_id": account.account_id,
             "balance": info["balance"],
+            "resolved_symbol": symbol,
+            "confidence": resolved.confidence,
             "calculation": calc,
             "margin_ok": margin_ok,
             "rule_status": rule_status,
@@ -241,11 +267,23 @@ async def execute_batch_v2(request: BatchTradeRequest, db: Session = Depends(get
     async def prepare_one(account: Account) -> dict:
         if not await _ensure_worker(account.id):
             return {"ready": False, "account": account, "account_id": account.account_id, "error": "worker not ready", "calc": None}
+        aliases = parse_aliases(account.symbol_aliases)
+        resolved = await resolve_symbol(pool, account.id, request.symbol, aliases)
+        if not resolved.available or not resolved.resolved:
+            return {
+                "ready": False,
+                "account": account,
+                "account_id": account.account_id,
+                "error": "symbol not available on this account",
+                "calc": None,
+                "alternatives": resolved.alternatives,
+            }
+        symbol = resolved.resolved
         try:
             info, sym_info, tick = await asyncio.gather(
                 pool.call(account.id, "get_account_info"),
-                pool.call(account.id, "get_symbol_info", {"symbol": request.symbol}),
-                pool.call(account.id, "get_tick_price", {"symbol": request.symbol}),
+                pool.call(account.id, "get_symbol_info", {"symbol": symbol}),
+                pool.call(account.id, "get_tick_price", {"symbol": symbol}),
             )
         except (WorkerError, WorkerNotRunning, asyncio.TimeoutError) as e:
             return {"ready": False, "account": account, "account_id": account.account_id, "error": f"worker call failed: {e}", "calc": None}
@@ -258,7 +296,7 @@ async def execute_batch_v2(request: BatchTradeRequest, db: Session = Depends(get
         sizer = PositionSizer(_PreFetchedMT5(sym_info, tick))
         calc = sizer.calculate(
             balance=info["balance"],
-            symbol=request.symbol,
+            symbol=symbol,
             direction=request.direction,
             sl_price=request.sl_price,
             risk_type=request.risk_type,
@@ -289,6 +327,7 @@ async def execute_batch_v2(request: BatchTradeRequest, db: Session = Depends(get
             "ready": True,
             "account": account,
             "account_id": account.account_id,
+            "resolved_symbol": symbol,
             "calc": calc,
             "margin_ok": margin_ok,
         }
@@ -315,9 +354,10 @@ async def execute_batch_v2(request: BatchTradeRequest, db: Session = Depends(get
     async def execute_one(p: dict) -> dict:
         account = p["account"]
         calc = p["calc"]
+        symbol = p.get("resolved_symbol") or request.symbol
         try:
             result = await pool.call(account.id, "place_market_order", {
-                "symbol": request.symbol,
+                "symbol": symbol,
                 "volume": calc["lot_size"],
                 "order_type": request.direction,
                 "sl": calc.get("sl_price", 0.0),
@@ -335,6 +375,7 @@ async def execute_batch_v2(request: BatchTradeRequest, db: Session = Depends(get
         )
         return {
             "account_id": account.account_id,
+            "resolved_symbol": symbol,
             "success": success,
             "order": order_ticket,
             "error": result.get("error"),

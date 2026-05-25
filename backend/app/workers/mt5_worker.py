@@ -181,6 +181,24 @@ def _handle_get_positions(_params: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _handle_symbols_search(params: dict[str, Any]) -> list[str]:
+    """Return up to `limit` symbol names matching the optional glob pattern.
+
+    Used by the symbol resolver to find broker-specific variants (e.g.
+    EURUSD.m, XAU/USD) when the requested symbol isn't an exact match.
+    """
+    query = (params.get("query") or params.get("q") or "").strip()
+    limit = int(params.get("limit", 50))
+    if query:
+        # MT5 group filter accepts globbing — wrap query for substring match.
+        syms = mt5.symbols_get(group=f"*{query}*")
+    else:
+        syms = mt5.symbols_get()
+    if syms is None:
+        return []
+    return [s.name for s in syms[:limit]]
+
+
 def _handle_get_symbol_info(params: dict[str, Any]) -> dict[str, Any] | None:
     symbol = params.get("symbol")
     if not symbol:
@@ -325,6 +343,7 @@ _HANDLERS: dict[str, Any] = {
     "get_account_info": _handle_get_account_info,
     "get_positions": _handle_get_positions,
     "get_symbol_info": _handle_get_symbol_info,
+    "symbols_search": _handle_symbols_search,
     "get_tick_price": _handle_get_tick_price,
     "place_market_order": _handle_place_market_order,
     "close_position": _handle_close_position,

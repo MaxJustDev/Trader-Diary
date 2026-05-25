@@ -10,6 +10,7 @@ from app.services.mt5_service import MT5Service
 from app.services.mt5_terminal import create_terminal_copy, delete_terminal_copy, resolve_base_path
 from app.services.encryption import encrypt_password
 from app.services.mt5_auth import login_account
+from app.services.symbol_resolver import parse_aliases, serialize_aliases
 from app.services.phase_detector import detect_phase, parse_starting_balance
 from app.services.rule_checker import RuleChecker
 
@@ -290,3 +291,50 @@ async def refresh_all_accounts(db: Session = Depends(get_db)):
     mt5.shutdown()
 
     return {"results": results}
+
+
+# ── Per-account symbol alias management (Batch G) ─────────────────────────────
+from pydantic import BaseModel
+
+
+class SymbolAliasUpsert(BaseModel):
+    requested: str
+    resolved: str
+
+
+@router.get("/{account_id}/symbol-aliases")
+async def get_symbol_aliases(account_id: int, db: Session = Depends(get_db)):
+    """Return the per-account symbol alias map (requested → resolved)."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"account_id": account.id, "aliases": parse_aliases(account.symbol_aliases)}
+
+
+@router.post("/{account_id}/symbol-aliases")
+async def upsert_symbol_alias(
+    account_id: int, payload: SymbolAliasUpsert, db: Session = Depends(get_db),
+):
+    """Set or update one alias entry for the account."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    aliases = parse_aliases(account.symbol_aliases)
+    aliases[payload.requested.strip()] = payload.resolved.strip()
+    account.symbol_aliases = serialize_aliases(aliases)
+    db.commit()
+    return {"account_id": account.id, "aliases": aliases}
+
+
+@router.delete("/{account_id}/symbol-aliases/{requested}")
+async def delete_symbol_alias(account_id: int, requested: str, db: Session = Depends(get_db)):
+    """Remove a single alias entry."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    aliases = parse_aliases(account.symbol_aliases)
+    aliases.pop(requested, None)
+    aliases.pop(requested.upper(), None)
+    account.symbol_aliases = serialize_aliases(aliases) if aliases else None
+    db.commit()
+    return {"account_id": account.id, "aliases": aliases}
