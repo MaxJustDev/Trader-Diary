@@ -37,8 +37,13 @@ a = Analysis(
         # cryptography
         "cryptography.fernet",
         "cryptography.hazmat.primitives.kdf.pbkdf2",
-        # MetaTrader5 (the C-binding worker uses)
+        # MetaTrader5 (the C-binding worker uses) + numpy (MT5 dep)
         "MetaTrader5",
+        "numpy",
+        "numpy.core",
+        "numpy.core.multiarray",
+        "numpy._core",
+        "numpy._core._multiarray_umath",
         # psutil for terminal auto-launch
         "psutil",
         # websockets
