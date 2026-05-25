@@ -23,6 +23,16 @@ interface SymbolAvailability {
     [accountId: number]: boolean;
 }
 
+interface SymbolResolution {
+    resolved_symbol: string | null;
+    confidence: "exact" | "user_alias" | "suffix" | "fuzzy" | "not_found";
+    alternatives: string[];
+}
+
+interface SymbolResolutionMap {
+    [accountId: number]: SymbolResolution;
+}
+
 interface TickPrice {
     bid: number;
     ask: number;
@@ -38,6 +48,7 @@ export default function TradingPage() {
     const [riskValue, setRiskValue] = useState(1);
     const [selectedAccounts, setSelectedAccounts] = useState<number[]>([]);
     const [availability, setAvailability] = useState<SymbolAvailability>({});
+    const [resolution, setResolution] = useState<SymbolResolutionMap>({});
     const [checkingSymbol, setCheckingSymbol] = useState(false);
     const [symbolChecked, setSymbolChecked] = useState(false);
     const [tick, setTick] = useState<TickPrice | null>(null);
@@ -78,14 +89,21 @@ export default function TradingPage() {
             if (controller.signal.aborted) return;
 
             const avail: SymbolAvailability = {};
+            const resoMap: SymbolResolutionMap = {};
             const autoSelected: number[] = [];
             for (const item of result.results) {
                 avail[item.id] = item.available;
+                resoMap[item.id] = {
+                    resolved_symbol: item.resolved_symbol ?? null,
+                    confidence: item.confidence ?? "not_found",
+                    alternatives: item.alternatives ?? [],
+                };
                 if (item.available) {
                     autoSelected.push(item.id);
                 }
             }
             setAvailability(avail);
+            setResolution(resoMap);
             setSelectedAccounts(autoSelected);
             setSymbolChecked(true);
             setTick(result.tick || null);
@@ -530,45 +548,114 @@ export default function TradingPage() {
                                     </p>
                                 ) : (
                                     <>
-                                        {availableAccounts.map((account) => (
-                                            <label
-                                                key={account.id}
-                                                className="flex items-center p-2 hover:bg-white/[0.04] rounded cursor-pointer"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedAccounts.includes(account.id)}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            setSelectedAccounts([...selectedAccounts, account.id]);
-                                                        } else {
-                                                            setSelectedAccounts(selectedAccounts.filter((id) => id !== account.id));
-                                                        }
-                                                    }}
-                                                    className="mr-3 w-4 h-4"
-                                                    disabled={loading}
-                                                />
-                                                <CheckCircle2 className="w-4 h-4 text-emerald-400 mr-2 flex-shrink-0" />
-                                                <span className="font-mono text-slate-100">{account.account_id}</span>
-                                                <span className="text-slate-500 ml-2 text-sm">({account.server})</span>
-                                                {account.account_type === "fund" && (
-                                                    <span className="ml-auto text-xs bg-purple-500/[0.15] text-purple-300 border border-purple-500/[0.20] px-2 py-1 rounded">
-                                                        {account.current_phase || "Fund"}
-                                                    </span>
-                                                )}
-                                            </label>
-                                        ))}
-                                        {unavailableAccounts.map((account) => (
-                                            <div
-                                                key={account.id}
-                                                className="flex items-center p-2 opacity-40 rounded"
-                                            >
-                                                <div className="mr-3 w-4 h-4" />
-                                                <XCircle className="w-4 h-4 text-red-400 mr-2 flex-shrink-0" />
-                                                <span className="font-mono text-slate-400">{account.account_id}</span>
-                                                <span className="text-slate-600 ml-2 text-sm">(unavailable)</span>
-                                            </div>
-                                        ))}
+                                        {availableAccounts.map((account) => {
+                                            const reso = resolution[account.id];
+                                            const isResolved = reso && reso.resolved_symbol && reso.resolved_symbol !== symbol;
+                                            const isFuzzy = reso?.confidence === "fuzzy" || reso?.confidence === "suffix";
+                                            return (
+                                                <label
+                                                    key={account.id}
+                                                    className="flex items-center p-2 hover:bg-white/[0.04] rounded cursor-pointer"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedAccounts.includes(account.id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSelectedAccounts([...selectedAccounts, account.id]);
+                                                            } else {
+                                                                setSelectedAccounts(selectedAccounts.filter((id) => id !== account.id));
+                                                            }
+                                                        }}
+                                                        className="mr-3 w-4 h-4"
+                                                        disabled={loading}
+                                                    />
+                                                    <CheckCircle2 className="w-4 h-4 text-emerald-400 mr-2 flex-shrink-0" />
+                                                    <span className="font-mono text-slate-100">{account.account_id}</span>
+                                                    {isResolved && reso?.resolved_symbol && (
+                                                        <span
+                                                            title={`Resolved (${reso.confidence}): ${reso.resolved_symbol}`}
+                                                            className={`ml-2 text-xs px-2 py-0.5 rounded font-mono ${
+                                                                isFuzzy
+                                                                    ? "bg-amber-500/[0.15] text-amber-300 border border-amber-500/[0.3]"
+                                                                    : "bg-cyan-500/[0.10] text-cyan-300 border border-cyan-500/[0.25]"
+                                                            }`}
+                                                        >
+                                                            ≈ {reso.resolved_symbol}
+                                                        </span>
+                                                    )}
+                                                    <span className="text-slate-500 ml-2 text-xs">({account.server})</span>
+                                                    {isFuzzy && reso?.resolved_symbol && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={async (e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                try {
+                                                                    await apiClient.accounts.setSymbolAlias(account.id, symbol, reso.resolved_symbol!);
+                                                                    toast.success(`Saved ${symbol} → ${reso.resolved_symbol} for account ${account.account_id}`);
+                                                                    setResolution((prev) => ({
+                                                                        ...prev,
+                                                                        [account.id]: { ...prev[account.id], confidence: "user_alias" },
+                                                                    }));
+                                                                } catch (err: any) {
+                                                                    toast.error(`Save failed: ${err.message ?? "Unknown error"}`);
+                                                                }
+                                                            }}
+                                                            title={`Save this mapping so ${symbol} always resolves to ${reso.resolved_symbol} on this account`}
+                                                            className="ml-2 text-xs px-2 py-0.5 rounded bg-emerald-500/[0.10] text-emerald-300 border border-emerald-500/[0.25] hover:bg-emerald-500/[0.18]"
+                                                        >
+                                                            Always use
+                                                        </button>
+                                                    )}
+                                                    {account.account_type === "fund" && (
+                                                        <span className="ml-auto text-xs bg-purple-500/[0.15] text-purple-300 border border-purple-500/[0.20] px-2 py-1 rounded">
+                                                            {account.current_phase || "Fund"}
+                                                        </span>
+                                                    )}
+                                                </label>
+                                            );
+                                        })}
+                                        {unavailableAccounts.map((account) => {
+                                            const reso = resolution[account.id];
+                                            return (
+                                                <div
+                                                    key={account.id}
+                                                    className="flex items-center p-2 opacity-70 rounded"
+                                                >
+                                                    <div className="mr-3 w-4 h-4" />
+                                                    <XCircle className="w-4 h-4 text-red-400 mr-2 flex-shrink-0" />
+                                                    <span className="font-mono text-slate-400">{account.account_id}</span>
+                                                    {reso && reso.alternatives.length > 0 ? (
+                                                        <select
+                                                            className="ml-2 bg-white/[0.05] border border-amber-500/[0.30] text-amber-300 text-xs rounded px-2 py-1 font-mono"
+                                                            defaultValue=""
+                                                            onChange={async (e) => {
+                                                                const chosen = e.target.value;
+                                                                if (!chosen) return;
+                                                                try {
+                                                                    await apiClient.accounts.setSymbolAlias(account.id, symbol, chosen);
+                                                                    toast.success(`Saved ${symbol} → ${chosen}. Re-checking...`);
+                                                                    await checkSymbolAvailability(symbol, accounts);
+                                                                } catch (err: any) {
+                                                                    toast.error(`Save failed: ${err.message ?? "Unknown error"}`);
+                                                                }
+                                                            }}
+                                                            aria-label={`Pick broker symbol for ${account.account_id}`}
+                                                        >
+                                                            <option value="">Pick variant ▾</option>
+                                                            {reso.alternatives.map((alt) => (
+                                                                <option key={alt} value={alt}>
+                                                                    {alt}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    ) : (
+                                                        <span className="text-slate-600 ml-2 text-sm">(no broker variant found)</span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </>
                                 )}
                             </div>

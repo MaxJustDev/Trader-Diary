@@ -59,6 +59,24 @@ class ApiClient {
             this.request<any>(`/api/accounts/${id}/advance-phase`, {
                 method: "POST",
             }),
+        // Symbol alias map (Batch G)
+        getSymbolAliases: (id: number) =>
+            this.request<{ account_id: number; aliases: Record<string, string> }>(
+                `/api/accounts/${id}/symbol-aliases`,
+            ),
+        setSymbolAlias: (id: number, requested: string, resolved: string) =>
+            this.request<{ account_id: number; aliases: Record<string, string> }>(
+                `/api/accounts/${id}/symbol-aliases`,
+                {
+                    method: "POST",
+                    body: JSON.stringify({ requested, resolved }),
+                },
+            ),
+        deleteSymbolAlias: (id: number, requested: string) =>
+            this.request<{ account_id: number; aliases: Record<string, string> }>(
+                `/api/accounts/${id}/symbol-aliases/${encodeURIComponent(requested)}`,
+                { method: "DELETE" },
+            ),
     };
 
     // Funds API

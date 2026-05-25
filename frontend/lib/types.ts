@@ -104,6 +104,23 @@ export interface MT5StreamMessage {
     timestamp: string;
 }
 
+// Per-account symbol resolution (Batch G)
+export type SymbolConfidence = "exact" | "user_alias" | "suffix" | "fuzzy" | "not_found";
+
+export interface SymbolCheckV2Account {
+    account_id: string;     // MT5 login string
+    id: number;             // DB primary key
+    available: boolean;
+    resolved_symbol: string | null;
+    confidence: SymbolConfidence;
+    alternatives: string[];
+}
+
+export interface SymbolCheckV2Response {
+    results: SymbolCheckV2Account[];
+    tick: { bid: number; ask: number; last: number } | null;
+}
+
 // Multi-process v2 stream — tagged by account_db_id, broadcasts from N workers
 export interface MT5StreamV2Tick {
     account_db_id: number;
