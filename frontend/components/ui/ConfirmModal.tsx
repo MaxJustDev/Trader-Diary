@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, Info, X } from "lucide-react";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -9,7 +12,7 @@ interface ConfirmModalProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "danger" | "warning" | "info";
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<unknown>;
   onCancel: () => void;
 }
 
@@ -23,73 +26,111 @@ export default function ConfirmModal({
   onConfirm,
   onCancel,
 }: ConfirmModalProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const [submitting, setSubmitting] = useState(false);
+  useFocusTrap(modalRef, { onEscape: onCancel, enabled: isOpen });
 
-  useEffect(() => {
-    if (isOpen) {
-      cancelRef.current?.focus();
+  async function handleConfirm() {
+    if (submitting) return;
+    try {
+      setSubmitting(true);
+      const result = onConfirm();
+      if (result instanceof Promise) await result;
+    } finally {
+      setSubmitting(false);
     }
-  }, [isOpen]);
+  }
 
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    if (isOpen) document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [isOpen, onCancel]);
+  if (!isOpen || typeof document === "undefined") return null;
 
-  if (!isOpen) return null;
+  const accentColor = variant === "danger" ? "var(--rose)" : variant === "warning" ? "var(--amber)" : "var(--cyan)";
+  const Icon = variant === "info" ? Info : AlertTriangle;
 
-  const confirmGradient = {
-    danger: "bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 shadow-lg shadow-red-500/20",
-    warning: "bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 shadow-lg shadow-amber-500/20",
-    info: "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 shadow-lg shadow-blue-500/20",
-  };
-
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      aria-modal="true"
-      role="dialog"
-      aria-labelledby="confirm-modal-title"
+      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-        onClick={onCancel}
+        onClick={() => !submitting && onCancel()}
+        style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
       />
 
-      {/* Dialog */}
-      <div className="relative z-10 w-full max-w-md mx-4 bg-[#161b27] border border-white/[0.10] rounded-xl shadow-2xl overflow-hidden">
-        <div className="p-6">
-          <h2
-            id="confirm-modal-title"
-            className="text-lg font-semibold text-slate-100 mb-2"
-          >
-            {title}
-          </h2>
-          <p className="text-sm text-slate-400 whitespace-pre-line">
-            {message}
-          </p>
+      {/* Panel */}
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        style={{
+          position: "relative",
+          zIndex: 1,
+          width: "100%",
+          maxWidth: "420px",
+          background: "#0b0e17",
+          border: `1px solid ${accentColor}30`,
+          borderRadius: "16px",
+          boxShadow: `0 0 40px rgba(0,0,0,0.6), 0 0 0 1px ${accentColor}15`,
+          overflow: "hidden",
+          animation: "fade-up 0.2s cubic-bezier(0.22,1,0.36,1) both",
+        }}
+      >
+        {/* Top accent */}
+        <div style={{ height: "2px", background: `linear-gradient(90deg, ${accentColor}, transparent)` }} />
+
+        <div style={{ padding: "24px" }}>
+          {/* Icon + Title */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "12px" }}>
+            <div style={{
+              width: "34px", height: "34px", borderRadius: "8px", flexShrink: 0,
+              background: `${accentColor}14`, border: `1px solid ${accentColor}28`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <Icon size={16} style={{ color: accentColor }} />
+            </div>
+            <div>
+              <h2 id="confirm-title" style={{ fontSize: "15px", fontWeight: 700, color: "#f0f4f8", margin: 0 }}>
+                {title}
+              </h2>
+              <p style={{ fontSize: "13px", color: "var(--text-muted)", marginTop: "4px", lineHeight: 1.5 }}>
+                {message}
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 bg-white/[0.03] border-t border-white/[0.08]">
+        {/* Footer */}
+        <div style={{ display: "flex", gap: "8px", padding: "16px 24px", borderTop: "1px solid var(--border)", background: "rgba(255,255,255,0.01)", justifyContent: "flex-end" }}>
           <button
-            ref={cancelRef}
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-slate-300 bg-white/[0.06] hover:bg-white/[0.10] border border-white/[0.10] rounded-lg transition-colors"
+            disabled={submitting}
+            style={{
+              padding: "8px 16px", fontSize: "13px", fontWeight: 500,
+              background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)",
+              color: "var(--text-muted)", borderRadius: "8px", cursor: submitting ? "not-allowed" : "pointer",
+              opacity: submitting ? 0.5 : 1, transition: "all 150ms", fontFamily: "'Sora', sans-serif",
+            }}
+            onMouseEnter={(e) => { if (!submitting) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.09)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)"; }}
           >
             {cancelLabel}
           </button>
           <button
-            onClick={onConfirm}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${confirmGradient[variant]}`}
+            onClick={handleConfirm}
+            disabled={submitting}
+            style={{
+              padding: "8px 18px", fontSize: "13px", fontWeight: 600,
+              background: `${accentColor}18`, border: `1px solid ${accentColor}40`,
+              color: accentColor, borderRadius: "8px", cursor: submitting ? "not-allowed" : "pointer",
+              opacity: submitting ? 0.6 : 1, transition: "all 150ms", fontFamily: "'Sora', sans-serif",
+            }}
+            onMouseEnter={(e) => { if (!submitting) (e.currentTarget as HTMLElement).style.background = `${accentColor}28`; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = `${accentColor}18`; }}
           >
-            {confirmLabel}
+            {submitting ? "Working..." : confirmLabel}
           </button>
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }

@@ -256,7 +256,7 @@ function PositionsTable() {
                 }
                 confirmLabel="Close Position"
                 variant="warning"
-                onConfirm={() => confirmTicket !== null && handleClose(confirmTicket)}
+                onConfirm={() => { if (confirmTicket !== null) handleClose(confirmTicket); }}
                 onCancel={() => setConfirmTicket(null)}
             />
 
