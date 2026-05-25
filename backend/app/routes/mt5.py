@@ -73,31 +73,39 @@ async def connect_mt5(request: ConnectRequest, db: Session = Depends(get_db)):
 
     # Smart connect: only shutdown if switching to a different terminal
     new_path = account.mt5_path or mt5_service.default_exe_path()
-    if mt5_service.is_initialized and mt5_service.current_path == new_path:
-        logger.info("Same terminal path, skipping re-init — re-login only")
-    elif mt5_service.is_initialized:
-        logger.info("Different terminal path, full shutdown + re-init")
-        mt5_service.shutdown()
+    needs_shutdown = mt5_service.is_initialized and mt5_service.current_path != new_path
+    same_terminal = mt5_service.is_initialized and mt5_service.current_path == new_path
 
-    if mt5_service.login(int(account.account_id), password, account.server, path=account.mt5_path):
-        connected_account_id = account_id
-        info = mt5_service.get_account_info()
+    def _sync_connect():
+        if needs_shutdown:
+            logger.info("Different terminal path, full shutdown + re-init")
+            mt5_service.shutdown()
+        elif same_terminal:
+            logger.info("Same terminal path, skipping re-init — re-login only")
+        success = mt5_service.login(int(account.account_id), password, account.server, path=account.mt5_path)
+        if not success:
+            return None
+        return mt5_service.get_account_info()
 
-        # Update stored account data
-        if info:
-            account.mt5_name = info.get("name", "")
-            account.balance = info.get("balance")
-            account.equity = info.get("equity")
-            account.profit = info.get("profit")
-            db.commit()
-
-        return {
-            "success": True,
-            "account_id": account.account_id,
-            "info": info,
-        }
-    else:
+    info = await run_mt5(_sync_connect)
+    if info is None:
         raise HTTPException(status_code=400, detail="Failed to connect to MT5")
+
+    connected_account_id = account_id
+
+    # Update stored account data
+    if info:
+        account.mt5_name = info.get("name", "")
+        account.balance = info.get("balance")
+        account.equity = info.get("equity")
+        account.profit = info.get("profit")
+        db.commit()
+
+    return {
+        "success": True,
+        "account_id": account.account_id,
+        "info": info,
+    }
 
 
 @router.post("/disconnect")
@@ -108,7 +116,7 @@ async def disconnect_mt5():
     if not connected_account_id:
         return {"message": "No account connected"}
 
-    mt5_service.shutdown()
+    await run_mt5(mt5_service.shutdown)
     connected_account_id = None
 
     return {"message": "Disconnected successfully"}
@@ -129,7 +137,7 @@ async def close_position(request: ClosePositionRequest):
     if not mt5_service.is_initialized or not connected_account_id:
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
-    result = mt5_service.close_position(request.ticket)
+    result = await run_mt5(mt5_service.close_position, request.ticket)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Close failed"))
 
@@ -142,7 +150,7 @@ async def modify_position(request: ModifyPositionRequest):
     if not mt5_service.is_initialized or not connected_account_id:
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
-    result = mt5_service.modify_position(request.ticket, request.sl, request.tp)
+    result = await run_mt5(mt5_service.modify_position, request.ticket, request.sl, request.tp)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Modify failed"))
 
@@ -155,7 +163,7 @@ async def partial_close(request: PartialCloseRequest):
     if not mt5_service.is_initialized or not connected_account_id:
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
-    result = mt5_service.partial_close(request.ticket, request.volume)
+    result = await run_mt5(mt5_service.partial_close, request.ticket, request.volume)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Partial close failed"))
 
@@ -167,21 +175,28 @@ async def set_trailing_stop(request: TrailingStopRequest):
     """Activate a trailing stop for an open position (in-memory, checked every 5s on stream)."""
     if not mt5_service.is_initialized or not connected_account_id:
         raise HTTPException(status_code=400, detail="No MT5 account connected")
-    positions = mt5_service.get_positions()
-    pos = next((p for p in positions if p["ticket"] == request.ticket), None)
-    if not pos:
+
+    def _sync_set_trail():
+        positions = mt5_service.get_positions()
+        pos = next((p for p in positions if p["ticket"] == request.ticket), None)
+        if not pos:
+            return None
+        info = _mt5.symbol_info(pos["symbol"])
+        digits = info.digits if info else 5
+        pip_size = 10 ** (-digits) * (10 if digits in (3, 5) else 1)
+        TRAILING_STOPS[request.ticket] = {
+            "trail_pips": request.trail_pips,
+            "symbol": pos["symbol"],
+            "type": pos["type"],
+            "digits": digits,
+            "pip_size": pip_size,
+            "best_price": pos["price_open"],
+        }
+        return True
+
+    found = await run_mt5(_sync_set_trail)
+    if not found:
         raise HTTPException(status_code=404, detail="Position not found")
-    info = _mt5.symbol_info(pos["symbol"])
-    digits = info.digits if info else 5
-    pip_size = 10 ** (-digits) * (10 if digits in (3, 5) else 1)
-    TRAILING_STOPS[request.ticket] = {
-        "trail_pips": request.trail_pips,
-        "symbol": pos["symbol"],
-        "type": pos["type"],
-        "digits": digits,
-        "pip_size": pip_size,
-        "best_price": pos["price_open"],
-    }
     return {"ticket": request.ticket, "trail_pips": request.trail_pips, "active": True}
 
 
@@ -213,7 +228,7 @@ async def get_risk_status(db: Session = Depends(get_db)):
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    info = mt5_service.get_account_info()
+    info = await run_mt5(mt5_service.get_account_info)
     equity = info.get("equity", 0) if info else (account.equity or 0)
     balance = info.get("balance", 0) if info else (account.balance or 0)
 
@@ -255,7 +270,7 @@ async def search_symbols(search: str = ""):
     if not mt5_service.is_initialized:
         raise HTTPException(status_code=400, detail="MT5 not connected")
 
-    symbols = _mt5.symbols_get(search) if search else _mt5.symbols_get()
+    symbols = await run_mt5(_mt5.symbols_get, search) if search else await run_mt5(_mt5.symbols_get)
     if not symbols:
         return []
     return [s.name for s in symbols[:60]]
@@ -269,7 +284,7 @@ async def get_mt5_history(days: int = 30):
 
     from datetime import timedelta
     date_from = datetime.now() - timedelta(days=days)
-    deals = _mt5.history_deals_get(date_from, datetime.now())
+    deals = await run_mt5(_mt5.history_deals_get, date_from, datetime.now())
     if deals is None:
         return []
 
@@ -302,27 +317,27 @@ async def get_server_time():
     if not mt5_service.is_initialized:
         raise HTTPException(status_code=400, detail="MT5 not connected")
 
-    # Probe order: cached symbol first, then common majors
-    probe_symbols = []
-    if mt5_service._server_time_symbol:
-        probe_symbols.append(mt5_service._server_time_symbol)
-    for sym in ("EURUSD", "GBPUSD", "USDJPY", "XAUUSD"):
-        if sym not in probe_symbols:
-            probe_symbols.append(sym)
+    def _sync_probe():
+        probe_symbols = []
+        if mt5_service._server_time_symbol:
+            probe_symbols.append(mt5_service._server_time_symbol)
+        for sym in ("EURUSD", "GBPUSD", "USDJPY", "XAUUSD"):
+            if sym not in probe_symbols:
+                probe_symbols.append(sym)
+        for sym in probe_symbols:
+            tick = _mt5.symbol_info_tick(sym)
+            if tick:
+                mt5_service._server_time_symbol = sym
+                server_ts = tick.time
+                local_ts = int(datetime.utcnow().timestamp())
+                return {
+                    "server_time": datetime.utcfromtimestamp(server_ts).isoformat() + "Z",
+                    "local_time": datetime.utcnow().isoformat() + "Z",
+                    "offset_seconds": server_ts - local_ts,
+                }
+        return {"server_time": None, "local_time": datetime.utcnow().isoformat() + "Z", "offset_seconds": 0}
 
-    for sym in probe_symbols:
-        tick = _mt5.symbol_info_tick(sym)
-        if tick:
-            mt5_service._server_time_symbol = sym
-            server_ts = tick.time
-            local_ts = int(datetime.utcnow().timestamp())
-            return {
-                "server_time": datetime.utcfromtimestamp(server_ts).isoformat() + "Z",
-                "local_time": datetime.utcnow().isoformat() + "Z",
-                "offset_seconds": server_ts - local_ts,
-            }
-
-    return {"server_time": None, "local_time": datetime.utcnow().isoformat() + "Z", "offset_seconds": 0}
+    return await run_mt5(_sync_probe)
 
 
 @router.post("/close-all-positions")
@@ -331,17 +346,18 @@ async def close_all_positions():
     if not mt5_service.is_initialized or not connected_account_id:
         raise HTTPException(status_code=400, detail="No MT5 account connected")
 
-    positions = mt5_service.get_positions()
-    if not positions:
-        return {"closed": 0, "failed": 0, "results": []}
+    def _sync_close_all():
+        positions = mt5_service.get_positions()
+        if not positions:
+            return {"closed": 0, "failed": 0, "results": []}
+        results = []
+        for pos in positions:
+            res = mt5_service.close_position(pos["ticket"])
+            results.append({"ticket": pos["ticket"], "symbol": pos["symbol"], **res})
+        closed = sum(1 for r in results if r.get("success"))
+        return {"closed": closed, "failed": len(results) - closed, "results": results}
 
-    results = []
-    for pos in positions:
-        res = mt5_service.close_position(pos["ticket"])
-        results.append({"ticket": pos["ticket"], "symbol": pos["symbol"], **res})
-
-    closed = sum(1 for r in results if r.get("success"))
-    return {"closed": closed, "failed": len(results) - closed, "results": results}
+    return await run_mt5(_sync_close_all)
 
 
 @router.websocket("/stream")
