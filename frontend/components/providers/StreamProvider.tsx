@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useMT5Stream } from "@/hooks/useMT5Stream";
+import { useMT5StreamV2 } from "@/hooks/useMT5StreamV2";
 import { useMT5Store } from "@/lib/store";
 import { apiClient } from "@/lib/api-client";
 
@@ -11,6 +12,7 @@ import { apiClient } from "@/lib/api-client";
  */
 export default function StreamProvider({ children }: { children: React.ReactNode }) {
     useMT5Stream();
+    useMT5StreamV2();
 
     const setConnected = useMT5Store((s) => s.setConnected);
     const setConnectedAccountId = useMT5Store((s) => s.setConnectedAccountId);

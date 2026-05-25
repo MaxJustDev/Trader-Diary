@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { useAccountStore, useMT5Store } from "@/lib/store";
+import { useAccountStore, useMT5Store, useMT5StreamsV2 } from "@/lib/store";
 import { Fund, FundAccountAnalytics } from "@/lib/types";
 import AddAccountForm from "@/components/forms/AddAccountForm";
 import LiveDataPanel from "@/components/mt5/LiveDataPanel";
@@ -23,6 +23,7 @@ export default function AccountsPage() {
         clearEquityHistory,
         reset,
     } = useMT5Store();
+    const activeStreams = useMT5StreamsV2((s) => s.streams);
     const [funds, setFunds] = useState<Fund[]>([]);
     const [fundAnalytics, setFundAnalytics] = useState<FundAccountAnalytics[]>([]);
     const [loading, setLoading] = useState(false);
@@ -146,15 +147,17 @@ export default function AccountsPage() {
         }
     };
 
+    // Multi-process v2: each Connect click spawns a dedicated worker.
+    // Many accounts can be LIVE at once.
     const handleConnect = async (id: number) => {
         setConnecting(String(id));
         try {
-            clearEquityHistory();
-            await apiClient.mt5.connect(id);
-            setConnected(true);
-            setConnectedAccountId(id);
-            await loadData();
-            toast.success("MT5 connected successfully");
+            const result = await apiClient.mt5V2.connect(id);
+            if (result.ready) {
+                toast.success(`Account connected — worker live`);
+            } else {
+                toast.warning(`Worker spawned but MT5 bootstrap pending; watch the live status`);
+            }
         } catch (error: any) {
             toast.error(`Connection failed: ${error.message ?? "Unknown error"}`);
         } finally {
@@ -162,13 +165,10 @@ export default function AccountsPage() {
         }
     };
 
-    const handleDisconnect = async () => {
+    const handleDisconnect = async (id: number) => {
         try {
-            await apiClient.mt5.disconnect();
-            setConnected(false);
-            setConnectedAccountId(null);
-            reset();
-            toast.success("MT5 disconnected");
+            await apiClient.mt5V2.disconnect(id);
+            toast.success("Account disconnected");
         } catch (error: any) {
             toast.error(`Disconnect failed: ${error.message ?? "Unknown error"}`);
         }
@@ -222,9 +222,13 @@ export default function AccountsPage() {
                         Accounts
                     </h1>
                 </div>
-                {connected && (
+                {activeStreams.size > 0 && (
                     <button
-                        onClick={handleDisconnect}
+                        onClick={async () => {
+                            const ids = Array.from(activeStreams.keys());
+                            await Promise.all(ids.map((id) => apiClient.mt5V2.disconnect(id).catch(() => null)));
+                            toast.success(`Disconnected ${ids.length} live worker(s)`);
+                        }}
                         style={{
                             padding: "8px 16px",
                             background: "rgba(248,113,113,0.10)",
@@ -238,7 +242,7 @@ export default function AccountsPage() {
                             fontFamily: "'Sora', sans-serif",
                         }}
                     >
-                        Disconnect MT5
+                        Disconnect All ({activeStreams.size})
                     </button>
                 )}
             </div>
@@ -398,19 +402,28 @@ export default function AccountsPage() {
                         </div>
                     ) : (
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "14px" }}>
-                            {filtered.map((account) => (
-                                <AccountCard
-                                    key={account.id}
-                                    account={account}
-                                    analytics={analyticsMap.get(account.id)}
-                                    isConnected={connected && connectedAccountId === account.id}
-                                    isConnecting={connecting === String(account.id)}
-                                    isDeleting={deleting === account.id}
-                                    onConnect={() => handleConnect(account.id)}
-                                    onEdit={() => handleEdit(account)}
-                                    onDelete={() => handleDelete(account.id)}
-                                />
-                            ))}
+                            {filtered.map((account) => {
+                                const stream = activeStreams.get(account.id);
+                                const isLive = !!stream;
+                                return (
+                                    <AccountCard
+                                        key={account.id}
+                                        account={account}
+                                        analytics={analyticsMap.get(account.id)}
+                                        isConnected={isLive}
+                                        isConnecting={connecting === String(account.id)}
+                                        isDeleting={deleting === account.id}
+                                        liveBalance={stream?.accountInfo?.balance}
+                                        liveEquity={stream?.accountInfo?.equity}
+                                        liveProfit={stream?.accountInfo?.profit}
+                                        liveHealth={stream?.health}
+                                        onConnect={() => handleConnect(account.id)}
+                                        onDisconnect={() => handleDisconnect(account.id)}
+                                        onEdit={() => handleEdit(account)}
+                                        onDelete={() => handleDelete(account.id)}
+                                    />
+                                );
+                            })}
                         </div>
                     )}
                 </>

@@ -133,6 +133,29 @@ class ApiClient {
             this.request<any[]>("/api/mt5/trailing-stop/list"),
     };
 
+    // MT5 v2 API — multi-process worker pool. One worker per account.
+    mt5V2 = {
+        connect: (accountDbId: number) =>
+            this.request<{ account_db_id: number; spawned: boolean; ready: boolean }>(
+                `/api/mt5/v2/connect/${accountDbId}`,
+                { method: "POST" },
+            ),
+        disconnect: (accountDbId: number) =>
+            this.request<{ account_db_id: number; active: boolean }>(
+                `/api/mt5/v2/disconnect/${accountDbId}`,
+                { method: "POST" },
+            ),
+        status: () =>
+            this.request<{ active_account_ids: number[]; count: number }>(
+                "/api/mt5/v2/status",
+            ),
+        call: (accountDbId: number, method: string, params: object = {}) =>
+            this.request<{ account_db_id: number; method: string; result: unknown }>(
+                `/api/mt5/v2/call/${accountDbId}/${method}`,
+                { method: "POST", body: JSON.stringify(params) },
+            ),
+    };
+
     // Trading API
     trading = {
         checkSymbol: (request: any) =>

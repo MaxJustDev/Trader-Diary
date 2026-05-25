@@ -1,6 +1,7 @@
 "use client";
 
-import { Account, FundAccountAnalytics } from "@/lib/types";
+import React from "react";
+import { Account, FundAccountAnalytics, AccountStreamState } from "@/lib/types";
 
 interface Props {
     account: Account;
@@ -8,7 +9,13 @@ interface Props {
     isConnected: boolean;
     isConnecting: boolean;
     isDeleting: boolean;
+    // Multi-process live data (Batch F Phase 3) — present when a v2 worker is streaming.
+    liveBalance?: number;
+    liveEquity?: number;
+    liveProfit?: number;
+    liveHealth?: AccountStreamState["health"];
     onConnect: () => void;
+    onDisconnect?: () => void;
     onDelete: () => void;
     onEdit: () => void;
 }
@@ -43,8 +50,11 @@ function getStaleness(updatedAt?: string): string {
     return `${Math.floor(diffH / 24)}d ago`;
 }
 
-export default function AccountCard({ account, analytics, isConnected, isConnecting, isDeleting, onConnect, onDelete, onEdit }: Props) {
-    const profit = account.profit ?? 0;
+function AccountCard({ account, analytics, isConnected, isConnecting, isDeleting, liveBalance, liveEquity, liveProfit, liveHealth, onConnect, onDisconnect, onDelete, onEdit }: Props) {
+    // Prefer live values from a running v2 worker over stale DB snapshot.
+    const balance = liveBalance ?? account.balance;
+    const equity = liveEquity ?? account.equity;
+    const profit = liveProfit ?? account.profit ?? 0;
     const profitColor = profit > 0 ? "var(--emerald)" : profit < 0 ? "var(--rose)" : "var(--text-muted)";
 
     const fmt = (v?: number) =>
@@ -128,9 +138,9 @@ export default function AccountCard({ account, analytics, isConnected, isConnect
                 {/* Financials */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", marginTop: "12px" }}>
                     {[
-                        { label: "Balance", value: fmt(account.balance), color: "var(--text-soft)" },
-                        { label: "Equity", value: fmt(account.equity), color: "var(--text-soft)" },
-                        { label: "Profit", value: `${profit >= 0 ? "+" : ""}${fmt(account.profit)}`, color: profitColor },
+                        { label: "Balance", value: fmt(balance), color: "var(--text-soft)" },
+                        { label: "Equity", value: fmt(equity), color: "var(--text-soft)" },
+                        { label: "Profit", value: `${profit >= 0 ? "+" : ""}${fmt(profit)}`, color: profitColor },
                     ].map(({ label, value, color }) => (
                         <div key={label}>
                             <div style={{ fontSize: "9px", color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "3px" }}>{label}</div>
@@ -168,7 +178,28 @@ export default function AccountCard({ account, analytics, isConnected, isConnect
                 <span style={{ fontSize: "10px", color: "var(--text-dim)", letterSpacing: "0.04em" }}>{getStaleness(account.updated_at)}</span>
                 <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                     {isConnected ? (
-                        <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--emerald)", letterSpacing: "0.06em" }}>● LIVE</span>
+                        <>
+                            <span
+                                title={liveHealth ?? ""}
+                                style={{
+                                    fontSize: "10px",
+                                    fontWeight: 700,
+                                    color: liveHealth === "reconnecting" || liveHealth === "disconnected" ? "var(--amber)" : "var(--emerald)",
+                                    letterSpacing: "0.06em",
+                                }}
+                            >
+                                ● {liveHealth === "reconnecting" ? "RECONNECTING" : liveHealth === "disconnected" ? "OFFLINE" : "LIVE"}
+                            </span>
+                            {onDisconnect && (
+                                <button
+                                    onClick={onDisconnect}
+                                    aria-label="Disconnect MT5 worker"
+                                    style={{ padding: "5px 11px", fontSize: "11px", fontWeight: 500, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "var(--rose)", borderRadius: "6px", cursor: "pointer", transition: "all 150ms", fontFamily: "'Sora', sans-serif" }}
+                                >
+                                    Disconnect
+                                </button>
+                            )}
+                        </>
                     ) : (
                         <button
                             onClick={onConnect}
@@ -199,3 +230,5 @@ export default function AccountCard({ account, analytics, isConnected, isConnect
         </div>
     );
 }
+
+export default React.memo(AccountCard);

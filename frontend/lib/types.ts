@@ -104,6 +104,46 @@ export interface MT5StreamMessage {
     timestamp: string;
 }
 
+// Multi-process v2 stream — tagged by account_db_id, broadcasts from N workers
+export interface MT5StreamV2Tick {
+    account_db_id: number;
+    event: 'tick';
+    data: {
+        account_info: MT5AccountInfo | null;
+        positions: MT5Position[];
+        ts: string;
+    };
+}
+
+export interface MT5StreamV2Health {
+    account_db_id: number;
+    event: 'health';
+    data: {
+        state: 'ready' | 'bootstrap_failed' | 'disconnected' | 'reconnecting' | 'recovered' | 'reconnect_failed' | 'exited';
+        message?: string;
+        connected?: boolean;
+        returncode?: number | null;
+    };
+}
+
+export interface MT5StreamV2Status {
+    account_db_id: null;
+    event: 'status';
+    data: { active_account_ids: number[] };
+}
+
+export type MT5StreamV2Message = MT5StreamV2Tick | MT5StreamV2Health | MT5StreamV2Status;
+
+// Per-account live snapshot built by useMT5StreamV2 from incoming ticks
+export interface AccountStreamState {
+    account_db_id: number;
+    accountInfo: MT5AccountInfo | null;
+    positions: MT5Position[];
+    equityHistory: EquityDataPoint[];
+    lastTickAt: number;          // Date.now() at most recent tick
+    health: 'ready' | 'disconnected' | 'reconnecting' | 'bootstrap_failed' | 'exited' | 'unknown';
+}
+
 export interface EquityDataPoint {
     time: string;
     balance: number;
