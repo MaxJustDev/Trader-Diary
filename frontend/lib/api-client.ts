@@ -156,7 +156,28 @@ class ApiClient {
             ),
     };
 
-    // Trading API
+    // Trading API — v2 (parallel via worker pool, Batch F Phase 4)
+    // Routes path `/api/trading/v2/*`. Workers spawn on-demand for non-active
+    // accounts. Each per-account MT5 call runs in parallel.
+    tradingV2 = {
+        checkSymbol: (request: any) =>
+            this.request<any>("/api/trading/v2/check-symbol", {
+                method: "POST",
+                body: JSON.stringify(request),
+            }),
+        calculatePosition: (request: any) =>
+            this.request<any>("/api/trading/v2/calculate-position", {
+                method: "POST",
+                body: JSON.stringify(request),
+            }),
+        executeBatch: (request: any) =>
+            this.request<any>("/api/trading/v2/execute-batch", {
+                method: "POST",
+                body: JSON.stringify(request),
+            }),
+    };
+
+    // Trading API (v1 — single-process singleton, kept for fallback)
     trading = {
         checkSymbol: (request: any) =>
             this.request<any>("/api/trading/check-symbol", {

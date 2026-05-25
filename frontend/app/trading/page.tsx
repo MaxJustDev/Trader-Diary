@@ -70,7 +70,7 @@ export default function TradingPage() {
         setCheckingSymbol(true);
         setPreview(null);
         try {
-            const result = await apiClient.trading.checkSymbol({
+            const result = await apiClient.tradingV2.checkSymbol({
                 symbol: sym.trim(),
                 account_ids: accs.map((a) => a.id),
             });
@@ -175,7 +175,7 @@ export default function TradingPage() {
 
         setLoading(true);
         try {
-            const result = await apiClient.trading.calculatePosition({
+            const result = await apiClient.tradingV2.calculatePosition({
                 symbol: symbol.trim(),
                 direction,
                 sl_price: slPrice,
@@ -225,7 +225,7 @@ export default function TradingPage() {
         setExecuting(true);
         setExecResults(null);
         try {
-            const result = await apiClient.trading.executeBatch({
+            const result = await apiClient.tradingV2.executeBatch({
                 symbol: symbol.trim(),
                 direction,
                 sl_price: slPrice,

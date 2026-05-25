@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text, inspect
 from app.routes import accounts, funds, mt5, trading, analytics
 from app.routes import news, system as system_routes
-from app.routes import mt5_v2
+from app.routes import mt5_v2, trading_v2
 from app.services.worker_pool import pool as worker_pool
 from app.database import engine, Base
 # Import all models so Base.metadata knows about them
@@ -123,6 +123,7 @@ app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"]
 app.include_router(news.router, prefix="/api/news", tags=["News"])
 app.include_router(system_routes.router, prefix="/api/system", tags=["System"])
 app.include_router(mt5_v2.router, prefix="/api/mt5/v2", tags=["MT5 v2 (multi-process)"])
+app.include_router(trading_v2.router, prefix="/api/trading/v2", tags=["Trading v2 (parallel)"])
 
 
 @app.on_event("shutdown")
