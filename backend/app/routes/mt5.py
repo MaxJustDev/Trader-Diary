@@ -12,6 +12,7 @@ from app.websocket import manager
 import asyncio
 import json
 import logging
+from app.utils.async_helpers import run_mt5, run_db
 import MetaTrader5 as _mt5
 
 logger = logging.getLogger(__name__)
@@ -358,24 +359,21 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             if mt5_service.is_initialized and connected_account_id:
-                info = mt5_service.get_account_info()
-                positions = mt5_service.get_positions()
+                info = await run_mt5(mt5_service.get_account_info)
+                positions = await run_mt5(mt5_service.get_positions)
                 now = asyncio.get_event_loop().time()
 
                 if info:
                     consecutive_failures = 0
-                    # Check trailing stops every TRAIL_CHECK_INTERVAL seconds
                     if TRAILING_STOPS and (now - last_trail_time) >= TRAIL_CHECK_INTERVAL:
-                        _check_trailing_stops(positions or [])
+                        await run_mt5(_check_trailing_stops, positions or [])
                         last_trail_time = now
 
-                    # Persist equity snapshot every SNAPSHOT_INTERVAL seconds
                     if (now - last_snapshot_time) >= SNAPSHOT_INTERVAL:
-                        _save_snapshot(connected_account_id, info)
+                        await run_db(_save_snapshot, connected_account_id, info)
                         last_snapshot_time = now
 
-                    # Reset daily baseline if trading day changed
-                    _maybe_reset_daily_open(connected_account_id, info)
+                    await run_db(_maybe_reset_daily_open, connected_account_id, info)
                 else:
                     consecutive_failures += 1
                     if consecutive_failures >= 3:
@@ -397,28 +395,35 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-    except Exception:
+    except Exception as e:
+        logger.warning("WS stream error: %s", e)
         manager.disconnect(websocket)
 
 
 async def _attempt_reconnect(account_db_id: int):
     """Re-login to MT5 using stored credentials when stream goes stale."""
-    try:
+
+    def _do_reconnect() -> bool:
         db = SessionLocal()
-        account = db.query(Account).filter(Account.id == account_db_id).first()
-        if account:
+        try:
+            account = db.query(Account).filter(Account.id == account_db_id).first()
+            if not account:
+                return False
             password = decrypt_password(account.password)
-            success = mt5_service.login(
+            return mt5_service.login(
                 int(account.account_id), password, account.server, path=account.mt5_path
             )
-            if success:
-                logger.info("Auto-reconnect succeeded for account %s", account.account_id)
-            else:
-                logger.warning("Auto-reconnect failed for account %s", account.account_id)
+        finally:
+            db.close()
+
+    try:
+        success = await run_mt5(_do_reconnect)
+        if success:
+            logger.info("Auto-reconnect succeeded for account %s", account_db_id)
+        else:
+            logger.warning("Auto-reconnect failed for account %s", account_db_id)
     except Exception as e:
         logger.warning("Auto-reconnect error: %s", e)
-    finally:
-        db.close()
 
 
 def _save_snapshot(account_db_id: int, info: dict):
