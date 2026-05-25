@@ -57,6 +57,66 @@ def _check_symbol_on_account(mt5: MT5Service, account: Account, password: str, s
         return {"available": False, "tick": None}
 
 
+def _calculate_for_account(
+    mt5: MT5Service,
+    sizer: PositionSizer,
+    checker: RuleChecker,
+    account: Account,
+    password: str,
+    request: "PositionCalculateRequest",
+    db: Session,
+) -> dict:
+    """Sync per-account calc used by calculate_position. Returns the per-account result dict."""
+    try:
+        if not mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
+            return {"account_id": account.account_id, "error": "login failed"}
+
+        info = mt5.get_account_info()
+        if not info:
+            mt5.logout()
+            return {"account_id": account.account_id, "error": "no account_info"}
+
+        _reset_daily_equity_if_needed(account, info["equity"], info["balance"], db)
+
+        calc = sizer.calculate(
+            balance=info["balance"],
+            symbol=request.symbol,
+            direction=request.direction,
+            sl_price=request.sl_price,
+            risk_type=request.risk_type,
+            risk_value=request.risk_value,
+            tp_price=request.tp_price,
+        )
+
+        margin_ok = True
+        if not calc.get("error") and calc.get("lot_size", 0) > 0:
+            margin_ok = sizer.validate_margin(
+                request.symbol,
+                calc["lot_size"],
+                request.direction,
+                info["margin_free"],
+            )
+
+        risk_amount = calc.get("risk_amount", 0.0) or 0.0
+        reward_amount = calc.get("reward_amount", 0.0) or 0.0
+        rule_status = checker.get_pre_trade_status(
+            account=account,
+            proposed_risk_amount=risk_amount,
+            proposed_reward_amount=reward_amount,
+        )
+
+        mt5.logout()
+        return {
+            "account_id": account.account_id,
+            "balance": info["balance"],
+            "calculation": calc,
+            "margin_ok": margin_ok,
+            "rule_status": rule_status,
+        }
+    except Exception as e:
+        return {"account_id": account.account_id, "error": str(e)}
+
+
 @router.post("/check-symbol")
 async def check_symbol(
     request: SymbolCheckRequest,
@@ -114,69 +174,26 @@ async def calculate_position(
     mt5 = MT5Service()
     sizer = PositionSizer(mt5)
     checker = RuleChecker(db)
-    results = []
 
+    accounts = (
+        db.query(Account)
+        .filter(Account.id.in_(request.account_ids))
+        .all()
+    )
+    account_map = {a.id: a for a in accounts}
+    pw_cache = {a.id: decrypt_password(a.password) for a in accounts}
+
+    results = []
     for account_id in request.account_ids:
-        account = db.query(Account).filter(Account.id == account_id).first()
+        account = account_map.get(account_id)
         if not account:
             continue
+        result = await run_mt5(
+            _calculate_for_account, mt5, sizer, checker, account, pw_cache[account.id], request, db
+        )
+        results.append(result)
 
-        try:
-            password = decrypt_password(account.password)
-
-            if mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
-                info = mt5.get_account_info()
-
-                if info:
-                    # Keep daily equity tracker accurate
-                    _reset_daily_equity_if_needed(account, info["equity"], info["balance"], db)
-
-                    calc = sizer.calculate(
-                        balance=info["balance"],
-                        symbol=request.symbol,
-                        direction=request.direction,
-                        sl_price=request.sl_price,
-                        risk_type=request.risk_type,
-                        risk_value=request.risk_value,
-                        tp_price=request.tp_price,
-                    )
-
-                    margin_ok = True
-                    if not calc.get("error") and calc.get("lot_size", 0) > 0:
-                        margin_ok = sizer.validate_margin(
-                            request.symbol,
-                            calc["lot_size"],
-                            request.direction,
-                            info["margin_free"],
-                        )
-
-                    # Pre-trade rule validation — uses live account state from DB
-                    # (daily_open_equity just updated above if day rolled over)
-                    risk_amount = calc.get("risk_amount", 0.0) or 0.0
-                    reward_amount = calc.get("reward_amount", 0.0) or 0.0
-                    rule_status = checker.get_pre_trade_status(
-                        account=account,
-                        proposed_risk_amount=risk_amount,
-                        proposed_reward_amount=reward_amount,
-                    )
-
-                    results.append({
-                        "account_id": account.account_id,
-                        "balance": info["balance"],
-                        "calculation": calc,
-                        "margin_ok": margin_ok,
-                        "rule_status": rule_status,
-                    })
-
-                mt5.logout()
-        except Exception as e:
-            results.append({
-                "account_id": account.account_id,
-                "error": str(e),
-            })
-
-    mt5.shutdown()
-
+    await run_mt5(mt5.shutdown)
     return {"results": results}
 
 
