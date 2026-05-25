@@ -10,6 +10,7 @@ from app.services.position_sizer import PositionSizer
 from app.services.rule_checker import RuleChecker
 from app.services.encryption import decrypt_password
 import logging
+from app.utils.async_helpers import run_mt5, run_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,57 +43,63 @@ def _reset_daily_equity_if_needed(account: Account, live_equity: float, live_bal
     db.refresh(account)
 
 
+def _check_symbol_on_account(mt5: MT5Service, account: Account, password: str, symbol: str) -> dict:
+    """Sync per-account check used by check_symbol. Returns {available, tick_or_none}."""
+    try:
+        if not mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
+            return {"available": False, "tick": None}
+        symbol_info = mt5.get_symbol_info(symbol)
+        available = symbol_info is not None
+        tick = mt5.get_tick_price(symbol) if available else None
+        mt5.logout()
+        return {"available": available, "tick": tick}
+    except Exception:
+        return {"available": False, "tick": None}
+
+
 @router.post("/check-symbol")
 async def check_symbol(
     request: SymbolCheckRequest,
     db: Session = Depends(get_db),
 ):
-    """Check symbol availability across multiple accounts, return tick price from first available"""
+    """Check symbol availability across multiple accounts, return tick price from first available."""
     mt5 = MT5Service()
     results = []
     tick = None
 
+    # One DB hit instead of N
+    accounts = (
+        db.query(Account)
+        .filter(Account.id.in_(request.account_ids))
+        .all()
+    )
+    account_map = {a.id: a for a in accounts}
+
+    # Decrypt once per account up front
+    pw_cache = {a.id: decrypt_password(a.password) for a in accounts}
+
+    # Preserve client-requested order
     for account_id in request.account_ids:
-        account = db.query(Account).filter(Account.id == account_id).first()
+        account = account_map.get(account_id)
         if not account:
             continue
 
-        try:
-            password = decrypt_password(account.password)
+        outcome = await run_mt5(
+            _check_symbol_on_account, mt5, account, pw_cache[account.id], request.symbol
+        )
 
-            if mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
-                symbol_info = mt5.get_symbol_info(request.symbol)
-                available = symbol_info is not None
+        if tick is None and outcome["tick"] is not None:
+            tick = outcome["tick"]
 
-                # Get tick price from the first available account
-                if available and tick is None:
-                    tick = mt5.get_tick_price(request.symbol)
+        results.append({
+            "account_id": account.account_id,
+            "id": account.id,
+            "available": outcome["available"],
+        })
 
-                results.append({
-                    "account_id": account.account_id,
-                    "id": account.id,
-                    "available": available,
-                })
-                mt5.logout()
-            else:
-                results.append({
-                    "account_id": account.account_id,
-                    "id": account.id,
-                    "available": False,
-                })
-        except Exception:
-            results.append({
-                "account_id": account.account_id,
-                "id": account.id,
-                "available": False,
-            })
+    await run_mt5(mt5.shutdown)
 
-    mt5.shutdown()
-
-    return {
-        "results": results,
-        "tick": tick,
-    }
+    return {"results": results, "tick": tick}
 
 
 @router.post("/calculate-position")
