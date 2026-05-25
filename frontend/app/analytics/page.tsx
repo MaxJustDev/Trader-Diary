@@ -9,7 +9,12 @@ import {
     LineChart, Line, BarChart, Bar, Cell,
     XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
-import { BookOpen, TrendingUp, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
+import { BookOpen, TrendingUp, ChevronDown, ChevronRight, ArrowUp, ArrowDown, CalendarDays, RefreshCw, FileDown, Download, Upload } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const TradingCalendar = dynamic(() => import("@/components/analytics/TradingCalendar"), { ssr: false });
+const NewsCalendar = dynamic(() => import("@/components/ui/NewsCalendar"), { ssr: false });
+const SymbolHeatmap = dynamic(() => import("@/components/analytics/SymbolHeatmap"), { ssr: false });
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,6 +42,11 @@ interface TradeRecord {
     order_ticket?: number;
     success: boolean;
     error_msg?: string;
+    notes?: string;
+    tags?: string;
+    close_price?: number;
+    realized_pnl?: number;
+    closed_at?: string;
     executed_at?: string;
 }
 
@@ -251,13 +261,16 @@ const dayOfWeek = (dateStr: string) => {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-    const [activeTab, setActiveTab] = useState<"overview" | "journal">("overview");
+    const [activeTab, setActiveTab] = useState<"overview" | "journal" | "calendar">("overview");
     const [summary, setSummary] = useState<any>(null);
     const [fundAccounts, setFundAccounts] = useState<FundAccountAnalytics[]>([]);
     const [allAccounts, setAllAccounts] = useState<any[]>([]);
     const [equityCurve, setEquityCurve] = useState<EquityPoint[]>([]);
     const [trades, setTrades] = useState<TradeRecord[]>([]);
+    const [tradesLoading, setTradesLoading] = useState(false);
+    const [tradesFetched, setTradesFetched] = useState(false);
     const [journalDays, setJournalDays] = useState<JournalDay[]>([]);
+    const [calendarDays, setCalendarDays] = useState<JournalDay[]>([]);
     const [journalPeriod, setJournalPeriod] = useState<30 | 60 | 90>(90);
     const [journalAccountFilter, setJournalAccountFilter] = useState<number | "all">("all");
     const [expandedDay, setExpandedDay] = useState<string | null>(null);
@@ -265,29 +278,96 @@ export default function AnalyticsPage() {
     const [refreshing, setRefreshing] = useState(false);
     const [journalLoading, setJournalLoading] = useState(false);
     const [equityFilter, setEquityFilter] = useState<number | "all">("all");
+    const [editingNote, setEditingNote] = useState<{ id: number; value: string } | null>(null);
+    const [savingNote, setSavingNote] = useState(false);
+    const [syncingPnl, setSyncingPnl] = useState(false);
+    const [editingTags, setEditingTags] = useState<number | null>(null);
+    const [restoringDb, setRestoringDb] = useState(false);
 
     useEffect(() => { loadAnalytics(); }, []);
 
     const loadAnalytics = async () => {
         try {
-            const [summaryData, fundData, accountsData, equityData, tradeData, journalData] = await Promise.all([
+            const [summaryData, fundData, accountsData, equityData, journalData, calendarData] = await Promise.all([
                 apiClient.analytics.getSummary(),
                 apiClient.analytics.getFundStatus(),
                 apiClient.accounts.getAll(),
                 apiClient.analytics.getEquityCurve(),
-                apiClient.analytics.getTradeHistory(),
                 apiClient.analytics.getJournal(undefined, 90),
+                apiClient.analytics.getJournal(undefined, 400),
             ]);
             setSummary(summaryData);
             setFundAccounts(fundData.accounts);
             setAllAccounts(accountsData);
             setEquityCurve(equityData.data ?? []);
-            setTrades(tradeData.trades ?? []);
             setJournalDays(journalData.days ?? []);
+            setCalendarDays(calendarData.days ?? []);
         } catch (error: any) {
             toast.error(`Failed to load analytics: ${error.message ?? "Unknown error"}`);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSyncPnl = async () => {
+        setSyncingPnl(true);
+        try {
+            const r = await apiClient.analytics.syncRealizedPnl();
+            if (r.message) { toast.success(r.message); }
+            else { toast.success(`Synced P&L for ${r.synced} trade(s)`); }
+            if (r.synced > 0) {
+                const data = await apiClient.analytics.getTradeHistory();
+                setTrades(data.trades ?? []);
+            }
+        } catch (e: any) {
+            toast.error(`Sync failed: ${e.message}`);
+        } finally {
+            setSyncingPnl(false);
+        }
+    };
+
+    const saveNote = async () => {
+        if (!editingNote) return;
+        setSavingNote(true);
+        try {
+            await apiClient.analytics.updateTradeNote(editingNote.id, editingNote.value);
+            setTrades((prev) => prev.map((t) => t.id === editingNote.id ? { ...t, notes: editingNote.value } : t));
+            toast.success("Note saved");
+            setEditingNote(null);
+        } catch (e: any) {
+            toast.error(`Failed to save note: ${e.message}`);
+        } finally {
+            setSavingNote(false);
+        }
+    };
+
+    const TRADE_TAGS = ["Trend", "Breakout", "Reversal", "News", "FOMO", "Revenge", "Patient", "Scalp", "Swing"];
+
+    const toggleTag = async (trade: TradeRecord, tag: string) => {
+        const current = trade.tags ? trade.tags.split(",").map(t => t.trim()).filter(Boolean) : [];
+        const updated = current.includes(tag) ? current.filter(t => t !== tag) : [...current, tag];
+        const newTags = updated.join(",");
+        try {
+            await apiClient.analytics.updateTradeTags(trade.id, newTags);
+            setTrades((prev) => prev.map((t) => t.id === trade.id ? { ...t, tags: newTags } : t));
+        } catch (e: any) {
+            toast.error(`Failed to save tags: ${e.message}`);
+        }
+    };
+
+    const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setRestoringDb(true);
+        try {
+            const result = await apiClient.system.restore(file);
+            toast.success(`Database restored (${(result.size_bytes / 1024).toFixed(1)} KB). Refreshing...`);
+            setTimeout(() => window.location.reload(), 1200);
+        } catch (err: any) {
+            toast.error(`Restore failed: ${err.message}`);
+        } finally {
+            setRestoringDb(false);
+            e.target.value = "";
         }
     };
 
@@ -303,6 +383,19 @@ export default function AnalyticsPage() {
             toast.error(`Journal load failed: ${e.message}`);
         } finally {
             setJournalLoading(false);
+        }
+    };
+
+    const fetchTradeHistory = async () => {
+        setTradesLoading(true);
+        try {
+            const data = await apiClient.analytics.getTradeHistory();
+            setTrades(data.trades ?? []);
+            setTradesFetched(true);
+        } catch (error: any) {
+            toast.error(`Failed to load trade history: ${error.message ?? "Unknown error"}`);
+        } finally {
+            setTradesLoading(false);
         }
     };
 
@@ -364,8 +457,32 @@ export default function AnalyticsPage() {
         const worstDay = daysWithPnl.length > 0
             ? daysWithPnl.reduce((w, d) => d.balance_change! < w.balance_change! ? d : w)
             : null;
-        return { tradingDays, totalEntries, bestDay, worstDay };
+
+        // Current streak: count consecutive win/loss days from most recent
+        let streak = 0;
+        let streakType: "win" | "loss" | null = null;
+        const chronoDays = [...daysWithPnl].sort((a, b) => a.date.localeCompare(b.date));
+        for (let i = chronoDays.length - 1; i >= 0; i--) {
+            const bc = chronoDays[i].balance_change!;
+            const type = bc > 0 ? "win" : bc < 0 ? "loss" : null;
+            if (!type) break;
+            if (streakType === null) { streakType = type; streak = 1; }
+            else if (type === streakType) { streak++; }
+            else break;
+        }
+
+        return { tradingDays, totalEntries, bestDay, worstDay, streak, streakType };
     }, [journalDays]);
+
+    // Day ratings stored in localStorage
+    const [dayRatings, setDayRatings] = useState<Record<string, { rating: number; mood: string }>>(() => {
+        try { return JSON.parse(localStorage.getItem("traderdiary_day_ratings") || "{}"); } catch { return {}; }
+    });
+    const setDayRating = (date: string, rating: number, mood: string) => {
+        const updated = { ...dayRatings, [date]: { rating, mood } };
+        setDayRatings(updated);
+        localStorage.setItem("traderdiary_day_ratings", JSON.stringify(updated));
+    };
 
     // P&L bar chart data (chronological, days with balance_change only)
     const pnlChartData = useMemo(() => {
@@ -397,59 +514,112 @@ export default function AnalyticsPage() {
     }
 
     return (
-        <div className="p-8">
+        <div className="page-enter" style={{ padding: "clamp(16px, 3vw, 36px)" }}>
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-                <h1 className="text-3xl font-bold text-slate-100">Analytics</h1>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+                <div>
+                    <div className="section-label" style={{ marginBottom: "4px" }}>Trading Journal</div>
+                    <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#f0f4f8", margin: 0, letterSpacing: "-0.01em" }}>
+                        Analytics
+                    </h1>
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <button
+                    onClick={async () => {
+                        const { exportAnalyticsPdf } = await import("@/lib/export-pdf");
+                        exportAnalyticsPdf({ summary, journalStats, trades });
+                    }}
+                    style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "rgba(240,180,41,0.08)", border: "1px solid rgba(240,180,41,0.2)", color: "var(--gold)", borderRadius: "8px", fontSize: "12px", fontWeight: 500, cursor: "pointer", fontFamily: "'Sora', sans-serif" }}
+                >
+                    <FileDown size={14} /> Export PDF
+                </button>
+                <a
+                    href={apiClient.system.backup()}
+                    download
+                    style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.18)", color: "var(--cyan)", borderRadius: "8px", fontSize: "12px", fontWeight: 500, textDecoration: "none", fontFamily: "'Sora', sans-serif" }}
+                >
+                    <Download size={14} /> Backup DB
+                </a>
+                <label style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.18)", color: "var(--purple)", borderRadius: "8px", fontSize: "12px", fontWeight: 500, cursor: restoringDb ? "not-allowed" : "pointer", opacity: restoringDb ? 0.5 : 1, fontFamily: "'Sora', sans-serif" }}>
+                    <Upload size={14} /> {restoringDb ? "Restoring..." : "Restore DB"}
+                    <input type="file" accept=".db" onChange={handleRestore} style={{ display: "none" }} disabled={restoringDb} />
+                </label>
                 <button
                     onClick={handleRefresh}
                     disabled={refreshing}
-                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:opacity-50 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-500/20 transition-all"
+                    style={{
+                        padding: "8px 16px",
+                        background: "rgba(34,211,238,0.08)",
+                        border: "1px solid rgba(34,211,238,0.2)",
+                        color: "var(--cyan)",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        fontWeight: 500,
+                        cursor: refreshing ? "not-allowed" : "pointer",
+                        opacity: refreshing ? 0.7 : 1,
+                        transition: "all 150ms",
+                        fontFamily: "'Sora', sans-serif",
+                    }}
                 >
                     {refreshing ? "Refreshing..." : "Refresh Data"}
                 </button>
+                </div>
             </div>
 
             {/* Summary Stats — always visible */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "12px", marginBottom: "24px" }}>
                 {[
-                    { label: "Total Accounts", value: String(summary?.total_accounts || 0), accent: "from-blue-500 to-blue-400", color: "text-slate-100" },
-                    { label: "Fund Accounts", value: String(summary?.fund_accounts || 0), accent: "from-purple-500 to-purple-400", color: "text-purple-400" },
+                    { label: "Total Accounts", value: String(summary?.total_accounts || 0), accentColor: "var(--cyan)", textColor: "#f0f4f8" },
+                    { label: "Fund Accounts", value: String(summary?.fund_accounts || 0), accentColor: "var(--purple)", textColor: "var(--purple)" },
                     {
                         label: "Total Balance",
                         value: `$${summary?.total_balance?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "0"}`,
-                        accent: "from-emerald-500 to-emerald-400",
-                        color: "text-emerald-400",
+                        accentColor: "var(--emerald)",
+                        textColor: "var(--emerald)",
                     },
                     {
                         label: "Total P&L",
                         value: `${(summary?.total_profit ?? 0) >= 0 ? "+" : ""}$${fmt(summary?.total_profit)}`,
-                        accent: (summary?.total_profit ?? 0) >= 0 ? "from-emerald-500 to-emerald-400" : "from-red-500 to-red-400",
-                        color: (summary?.total_profit ?? 0) >= 0 ? "text-emerald-400" : "text-red-400",
+                        accentColor: (summary?.total_profit ?? 0) >= 0 ? "var(--emerald)" : "var(--rose)",
+                        textColor: (summary?.total_profit ?? 0) >= 0 ? "var(--emerald)" : "var(--rose)",
                     },
-                ].map(({ label, value, accent, color }) => (
-                    <div key={label} className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-xl p-6 relative overflow-hidden">
-                        <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${accent}`} />
-                        <p className="text-slate-400 text-sm">{label}</p>
-                        <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
+                ].map(({ label, value, accentColor, textColor }) => (
+                    <div key={label} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "12px", padding: "18px 20px", position: "relative", overflow: "hidden" }}>
+                        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "2px", background: `linear-gradient(90deg, ${accentColor}, transparent)` }} />
+                        <div className="section-label" style={{ marginBottom: "8px" }}>{label}</div>
+                        <div style={{ fontSize: "24px", fontWeight: 700, color: textColor, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1 }}>{value}</div>
                     </div>
                 ))}
             </div>
 
             {/* Tab bar */}
-            <div className="flex gap-1 mb-6 border-b border-white/[0.08]">
+            <div style={{ display: "flex", gap: "4px", marginBottom: "20px", borderBottom: "1px solid var(--border)", paddingBottom: "0" }}>
                 {[
-                    { id: "overview" as const, icon: <TrendingUp className="w-4 h-4" />, label: "Overview" },
-                    { id: "journal" as const, icon: <BookOpen className="w-4 h-4" />, label: "Journal" },
+                    { id: "overview" as const, icon: <TrendingUp size={13} />, label: "Overview" },
+                    { id: "journal" as const, icon: <BookOpen size={13} />, label: "Journal" },
+                    { id: "calendar" as const, icon: <CalendarDays size={13} />, label: "Calendar" },
                 ].map(tab => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                            activeTab === tab.id
-                                ? "border-blue-500 text-blue-400"
-                                : "border-transparent text-slate-400 hover:text-slate-200"
-                        }`}
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            padding: "9px 14px",
+                            fontSize: "12px",
+                            fontWeight: activeTab === tab.id ? 600 : 400,
+                            color: activeTab === tab.id ? "var(--gold)" : "var(--text-muted)",
+                            background: "none",
+                            border: "none",
+                            borderBottom: activeTab === tab.id ? "2px solid var(--gold)" : "2px solid transparent",
+                            marginBottom: "-1px",
+                            cursor: "pointer",
+                            transition: "color 150ms, border-color 150ms",
+                            fontFamily: "'Sora', sans-serif",
+                        }}
+                        onMouseEnter={(e) => { if (activeTab !== tab.id) (e.currentTarget as HTMLElement).style.color = "var(--text-soft)"; }}
+                        onMouseLeave={(e) => { if (activeTab !== tab.id) (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; }}
                     >
                         {tab.icon} {tab.label}
                     </button>
@@ -546,17 +716,59 @@ export default function AnalyticsPage() {
                         </div>
                     )}
 
+                    {/* News Calendar */}
+                    <div style={{ marginBottom: "24px" }}>
+                        <NewsCalendar />
+                    </div>
+
+                    {/* Symbol Performance + Hour Heatmap */}
+                    {trades.length > 0 && (
+                        <div style={{ marginBottom: "24px" }}>
+                            <SymbolHeatmap trades={trades} />
+                        </div>
+                    )}
+
                     {/* Trade History */}
                     <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-6">
-                        <h2 className="text-xl font-semibold mb-4 text-slate-100">
-                            Trade History
-                            {trades.length > 0 && (
-                                <span className="ml-2 text-sm font-normal text-slate-400">
-                                    ({trades.length} record{trades.length !== 1 ? "s" : ""})
-                                </span>
-                            )}
-                        </h2>
-                        {trades.length === 0 ? (
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-semibold text-slate-100">
+                                Trade History
+                                {trades.length > 0 && (
+                                    <span className="ml-2 text-sm font-normal text-slate-400">
+                                        ({trades.length} record{trades.length !== 1 ? "s" : ""})
+                                    </span>
+                                )}
+                            </h2>
+                            <div style={{ display: "flex", gap: "8px" }}>
+                                {tradesFetched && (
+                                    <button
+                                        onClick={handleSyncPnl}
+                                        disabled={syncingPnl}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
+                                        style={{ background: "rgba(240,180,41,0.08)", borderColor: "rgba(240,180,41,0.25)", color: "#f0b429" }}
+                                        title="Sync realized P&L from connected MT5 terminal"
+                                    >
+                                        {syncingPnl ? "Syncing..." : "Sync P&L"}
+                                    </button>
+                                )}
+                                <button
+                                    onClick={fetchTradeHistory}
+                                    disabled={tradesLoading}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50"
+                                    style={{ background: "rgba(255,255,255,0.04)", borderColor: "rgba(255,255,255,0.10)", color: "#94a3b8" }}
+                                >
+                                    <RefreshCw className={`w-3.5 h-3.5 ${tradesLoading ? "animate-spin" : ""}`} />
+                                    {tradesLoading ? "Loading..." : tradesFetched ? "Refresh" : "Load History"}
+                                </button>
+                            </div>
+                        </div>
+                        {!tradesFetched ? (
+                            <div className="h-48 flex items-center justify-center border-2 border-dashed border-white/[0.08] rounded-lg text-slate-600">
+                                <div className="text-center">
+                                    <p>Click "Load History" to fetch trade records</p>
+                                </div>
+                            </div>
+                        ) : trades.length === 0 ? (
                             <div className="h-48 flex items-center justify-center border-2 border-dashed border-white/[0.08] rounded-lg text-slate-600">
                                 <div className="text-center">
                                     <p>No trades yet</p>
@@ -578,7 +790,10 @@ export default function AnalyticsPage() {
                                             <th className="p-3 text-right font-semibold text-slate-400">TP</th>
                                             <th className="p-3 text-right font-semibold text-slate-400">Risk $</th>
                                             <th className="p-3 text-right font-semibold text-slate-400">R:R</th>
+                                            <th className="p-3 text-right font-semibold text-slate-400">Realized P&L</th>
                                             <th className="p-3 font-semibold text-slate-400">Status</th>
+                                            <th className="p-3 font-semibold text-slate-400">Tags</th>
+                                            <th className="p-3 font-semibold text-slate-400">Notes</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -596,10 +811,58 @@ export default function AnalyticsPage() {
                                                 <td className="p-3 text-right font-mono text-emerald-400">{fmt(t.tp_price)}</td>
                                                 <td className="p-3 text-right font-mono text-red-400">${fmt(t.risk_amount)}</td>
                                                 <td className="p-3 text-right text-slate-400">{t.rr_ratio ? `1:${t.rr_ratio}` : "—"}</td>
+                                                <td className="p-3 text-right font-mono" style={{ color: t.realized_pnl != null ? (t.realized_pnl >= 0 ? "var(--emerald, #34d399)" : "var(--rose, #f87171)") : "#475569" }}>
+                                                    {t.realized_pnl != null ? `${t.realized_pnl >= 0 ? "+" : ""}$${fmt(t.realized_pnl)}` : "—"}
+                                                </td>
                                                 <td className="p-3">
                                                     {t.success
                                                         ? <span className="text-emerald-400 font-medium text-xs">OK</span>
                                                         : <span className="text-red-400 text-xs" title={t.error_msg ?? ""}>Failed</span>}
+                                                </td>
+                                                <td className="p-3" style={{ minWidth: "180px" }}>
+                                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+                                                        {(t.tags ? t.tags.split(",").map(tag => tag.trim()).filter(Boolean) : []).map(tag => (
+                                                            <span key={tag} onClick={() => toggleTag(t, tag)} style={{ display: "inline-flex", alignItems: "center", gap: "3px", padding: "2px 7px", fontSize: "10px", fontWeight: 600, background: "rgba(240,180,41,0.12)", border: "1px solid rgba(240,180,41,0.3)", color: "var(--gold)", borderRadius: "99px", cursor: "pointer" }}>
+                                                                {tag} ×
+                                                            </span>
+                                                        ))}
+                                                        {editingTags === t.id ? (
+                                                            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
+                                                                {TRADE_TAGS.filter(tag => !(t.tags || "").split(",").map(s => s.trim()).includes(tag)).map(tag => (
+                                                                    <span key={tag} onClick={() => { toggleTag(t, tag); setEditingTags(null); }} style={{ padding: "2px 7px", fontSize: "10px", background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", color: "var(--text-dim)", borderRadius: "99px", cursor: "pointer" }}>
+                                                                        +{tag}
+                                                                    </span>
+                                                                ))}
+                                                                <span onClick={() => setEditingTags(null)} style={{ padding: "2px 6px", fontSize: "10px", color: "var(--text-dim)", cursor: "pointer" }}>✕</span>
+                                                            </div>
+                                                        ) : (
+                                                            <span onClick={() => setEditingTags(t.id)} style={{ padding: "2px 6px", fontSize: "10px", color: "var(--text-dim)", cursor: "pointer", borderRadius: "99px", border: "1px dashed rgba(255,255,255,0.1)" }} title="Add tag">+</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="p-3" style={{ minWidth: "160px" }}>
+                                                    {editingNote?.id === t.id ? (
+                                                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                                                            <input
+                                                                autoFocus
+                                                                value={editingNote.value}
+                                                                onChange={(e) => setEditingNote({ id: t.id, value: e.target.value })}
+                                                                onKeyDown={(e) => { if (e.key === "Enter") saveNote(); if (e.key === "Escape") setEditingNote(null); }}
+                                                                style={{ flex: 1, fontSize: "11px", padding: "4px 8px", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: "5px", color: "#f0f4f8", outline: "none", fontFamily: "'Sora', sans-serif" }}
+                                                            />
+                                                            <button onClick={saveNote} disabled={savingNote} style={{ fontSize: "10px", padding: "3px 8px", background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.3)", color: "var(--emerald)", borderRadius: "5px", cursor: "pointer", fontFamily: "'Sora', sans-serif" }}>
+                                                                {savingNote ? "..." : "Save"}
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div
+                                                            onClick={() => setEditingNote({ id: t.id, value: t.notes ?? "" })}
+                                                            style={{ fontSize: "11px", color: t.notes ? "var(--text-soft)" : "var(--text-dim)", cursor: "pointer", fontStyle: t.notes ? "normal" : "italic", minHeight: "20px", padding: "2px 4px", borderRadius: "4px" }}
+                                                            title="Click to add note"
+                                                        >
+                                                            {t.notes || "add note..."}
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
@@ -612,6 +875,7 @@ export default function AnalyticsPage() {
             )}
 
             {/* ── JOURNAL TAB ── */}
+
             {activeTab === "journal" && (
                 <>
                     {/* Filters */}
@@ -684,6 +948,16 @@ export default function AnalyticsPage() {
                             <p className="text-xs text-slate-400">Total Entries</p>
                             <p className="text-2xl font-bold text-slate-100 mt-1">{journalStats.totalEntries}</p>
                         </div>
+                        {journalStats.streak > 0 && (
+                            <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 relative overflow-hidden">
+                                <div className={`absolute top-0 left-0 right-0 h-0.5 ${journalStats.streakType === "win" ? "bg-gradient-to-r from-emerald-500 to-emerald-400" : "bg-gradient-to-r from-red-500 to-red-400"}`} />
+                                <p className="text-xs text-slate-400">Current Streak</p>
+                                <p className={`text-2xl font-bold mt-1 ${journalStats.streakType === "win" ? "text-emerald-400" : "text-red-400"}`}>
+                                    {journalStats.streakType === "win" ? "🔥" : "⚠️"} {journalStats.streak}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-0.5">{journalStats.streakType === "win" ? "winning" : "losing"} day{journalStats.streak !== 1 ? "s" : ""}</p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Activity Heatmap */}
@@ -796,6 +1070,18 @@ export default function AnalyticsPage() {
                                                     )}
                                                 </div>
 
+                                                {/* Day rating */}
+                                                <div className="shrink-0 flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                                    {[1,2,3,4,5].map(star => (
+                                                        <button
+                                                            key={star}
+                                                            onClick={() => setDayRating(day.date, star, dayRatings[day.date]?.mood ?? "")}
+                                                            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 1px", fontSize: "13px", opacity: (dayRatings[day.date]?.rating ?? 0) >= star ? 1 : 0.2, lineHeight: 1 }}
+                                                            title={`Rate day ${star}/5`}
+                                                        >★</button>
+                                                    ))}
+                                                </div>
+
                                                 {/* Chevron */}
                                                 <div className="shrink-0 text-slate-500">
                                                     {isExpanded
@@ -860,6 +1146,14 @@ export default function AnalyticsPage() {
                         )}
                     </div>
                 </>
+            )}
+
+            {/* ── CALENDAR TAB ── */}
+            {activeTab === "calendar" && (
+                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-4 sm:p-6">
+                    <h2 className="text-lg font-semibold text-slate-100 mb-4">P&amp;L Calendar</h2>
+                    <TradingCalendar journalDays={calendarDays} />
+                </div>
             )}
         </div>
     );
