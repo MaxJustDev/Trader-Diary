@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text, inspect
 from app.routes import accounts, funds, mt5, trading, analytics
+from app.routes import news, system as system_routes
 from app.database import engine, Base
 # Import all models so Base.metadata knows about them
 from app.models import Fund, FundProgram, FundPhaseRule, Account, EquitySnapshot, TradeRecord  # noqa: F401
@@ -57,8 +58,28 @@ def _migrate():
             if col not in fp_cols:
                 conn.execute(text(f"ALTER TABLE fund_programs ADD COLUMN {col} {coltype}"))
 
-        # New tables (created via create_all above, but listed here for clarity)
-        # equity_snapshots and trade_records are auto-created by Base.metadata.create_all
+        # trade_records new columns
+        tr_cols = {c["name"] for c in inspector.get_columns("trade_records")}
+        for col, coltype in [
+            ("notes", "VARCHAR(1000)"),
+            ("tags", "VARCHAR(500)"),
+            ("close_price", "FLOAT"),
+            ("realized_pnl", "FLOAT"),
+            ("closed_at", "TIMESTAMP"),
+        ]:
+            if col not in tr_cols:
+                conn.execute(text(f"ALTER TABLE trade_records ADD COLUMN {col} {coltype}"))
+
+        # Composite indexes for analytics hot paths (idempotent)
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS ix_trade_records_account_executed "
+            "ON trade_records(account_db_id, executed_at)",
+            "CREATE INDEX IF NOT EXISTS ix_equity_snapshots_account_recorded "
+            "ON equity_snapshots(account_db_id, recorded_at)",
+            "CREATE INDEX IF NOT EXISTS ix_fund_programs_fund_id "
+            "ON fund_programs(fund_id)",
+        ):
+            conn.execute(text(stmt))
 
         conn.commit()
 
@@ -90,6 +111,8 @@ app.include_router(funds.router, prefix="/api/funds", tags=["Funds"])
 app.include_router(mt5.router, prefix="/api/mt5", tags=["MT5"])
 app.include_router(trading.router, prefix="/api/trading", tags=["Trading"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(news.router, prefix="/api/news", tags=["News"])
+app.include_router(system_routes.router, prefix="/api/system", tags=["System"])
 
 
 # Serve frontend static files (must be AFTER API routers)

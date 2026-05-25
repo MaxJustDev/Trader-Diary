@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, Boolean, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, Float, String, Boolean, TIMESTAMP, ForeignKey, Index
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -24,4 +24,13 @@ class TradeRecord(Base):
     order_ticket = Column(Integer, nullable=True)
     success = Column(Boolean, nullable=False, default=False)
     error_msg = Column(String(300), nullable=True)
+    notes = Column(String(1000), nullable=True)
+    tags = Column(String(500), nullable=True)  # comma-separated tag list
+    close_price = Column(Float, nullable=True)
+    realized_pnl = Column(Float, nullable=True)
+    closed_at = Column(TIMESTAMP, nullable=True)
     executed_at = Column(TIMESTAMP, server_default=func.now(), index=True)
+
+    __table_args__ = (
+        Index("ix_trade_records_account_executed", "account_db_id", "executed_at"),
+    )

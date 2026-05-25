@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Text, TIMESTAMP, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -36,6 +36,10 @@ class FundProgram(Base):
     fund = relationship("Fund", back_populates="programs")
     phase_rules = relationship("FundPhaseRule", back_populates="program", cascade="all, delete-orphan")
     accounts = relationship("Account", back_populates="fund_program")
+
+    __table_args__ = (
+        Index("ix_fund_programs_fund_id", "fund_id"),
+    )
 
 
 class FundPhaseRule(Base):
