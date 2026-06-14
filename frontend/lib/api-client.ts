@@ -1,7 +1,21 @@
 import { Fund, Account, FundAccountAnalytics } from "./types";
 
-// API base URL
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+// API base URL.
+// Priority: explicit env override → same-origin (the static bundle is served by
+// FastAPI on the same host:port, so this makes phone/LAN access "just work" via
+// server-ip:8001) → localhost fallback. In the Next dev server (port 3000) the
+// API lives on 8001, so target <hostname>:8001 there instead of same-origin.
+function resolveApiBaseUrl(): string {
+    if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+    if (typeof window !== "undefined") {
+        const { protocol, hostname, port } = window.location;
+        if (port === "3000") return `${protocol}//${hostname}:8001`; // Next dev
+        return window.location.origin; // static bundle served by FastAPI
+    }
+    return "http://localhost:8001"; // SSR/build-time fallback
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 // API client class
 class ApiClient {

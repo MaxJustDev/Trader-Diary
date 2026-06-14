@@ -216,7 +216,7 @@ class MT5Service:
             return {"success": False, "error": f"Failed to get tick for {pos.symbol}"}
 
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
-        request = {
+        request = apply_stealth({
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": pos.symbol,
             "volume": pos.volume,
@@ -228,7 +228,7 @@ class MT5Service:
             "comment": "TraderDiary Close",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": self._get_filling_mode(pos.symbol),
-        }
+        }, volume_variance=0.0)  # never alter a close's volume
 
         result = mt5.order_send(request)
         if result is None:
@@ -264,7 +264,7 @@ class MT5Service:
             return {"success": False, "error": f"Failed to get tick for {pos.symbol}"}
 
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
-        request = {
+        request = apply_stealth({
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": pos.symbol,
             "volume": close_vol,
@@ -276,7 +276,7 @@ class MT5Service:
             "comment": "TraderDiary Partial",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": self._get_filling_mode(pos.symbol),
-        }
+        }, volume_variance=0.0)  # never alter a partial-close's volume
 
         result = mt5.order_send(request)
         if result is None:

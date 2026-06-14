@@ -296,7 +296,7 @@ def _handle_close_position(params: dict[str, Any]) -> dict[str, Any]:
     if tick is None:
         return {"success": False, "error": f"no tick for {pos.symbol}"}
     price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
-    result = mt5.order_send({
+    result = mt5.order_send(apply_stealth({
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": pos.symbol,
         "volume": pos.volume,
@@ -308,7 +308,7 @@ def _handle_close_position(params: dict[str, Any]) -> dict[str, Any]:
         "comment": "TraderDiary Close",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": _filling_mode(pos.symbol),
-    })
+    }, volume_variance=0.0))  # never alter a close's volume
     if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
         return {"success": False, "error": f"close failed: {result.comment if result else 'order_send None'}"}
     return {"success": True, "order": result.order, "volume": result.volume, "price": result.price}
