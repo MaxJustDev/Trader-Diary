@@ -1,4 +1,5 @@
 from app.services.mt5_provider import mt5
+from app.services.stealth import apply_stealth
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import os
@@ -333,7 +334,7 @@ class MT5Service:
         action = mt5.TRADE_ACTION_DEAL
         type_order = mt5.ORDER_TYPE_BUY if order_type.upper() == "BUY" else mt5.ORDER_TYPE_SELL
 
-        request = {
+        request = apply_stealth({
             "action": action,
             "symbol": symbol,
             "volume": volume,
@@ -346,7 +347,7 @@ class MT5Service:
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": self._get_filling_mode(symbol),
-        }
+        })
 
         result = mt5.order_send(request)
 

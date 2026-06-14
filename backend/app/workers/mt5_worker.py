@@ -49,6 +49,7 @@ from app.workers.mt5_health import (  # noqa: E402
     launch_terminal_if_needed,
     verify_login_connected,
 )
+from app.services.stealth import apply_stealth  # noqa: E402
 
 # ── Logging to stderr (stdout is reserved for the protocol) ──────────────────
 logging.basicConfig(
@@ -254,7 +255,7 @@ def _handle_place_market_order(params: dict[str, Any]) -> dict[str, Any]:
     price = tick.ask if order_type == "BUY" else tick.bid
     type_order = mt5.ORDER_TYPE_BUY if order_type == "BUY" else mt5.ORDER_TYPE_SELL
 
-    request = {
+    request = apply_stealth({
         "action": mt5.TRADE_ACTION_DEAL,
         "symbol": symbol,
         "volume": volume,
@@ -267,7 +268,7 @@ def _handle_place_market_order(params: dict[str, Any]) -> dict[str, Any]:
         "comment": comment,
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": _filling_mode(symbol),
-    }
+    })
     result = mt5.order_send(request)
     if result is None:
         return {"success": False, "error": "order_send returned None"}
