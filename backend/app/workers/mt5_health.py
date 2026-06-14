@@ -11,6 +11,7 @@ import logging
 import os
 import random
 import subprocess
+import sys
 import threading
 import time
 from typing import Callable, Optional
@@ -50,6 +51,12 @@ def launch_terminal_if_needed(exe_path: str) -> bool:
 
     Returns True if the terminal is now running, False on failure.
     """
+    if sys.platform != "win32":
+        # Linux: the Wine terminal lifecycle is owned by the bridge systemd
+        # service, not the worker. Nothing to launch here.
+        logger.info("Non-Windows: skipping terminal launch (bridge owns it)")
+        return True
+
     if _terminal_running(exe_path):
         logger.info("Terminal already running: %s", exe_path)
         return True
@@ -105,7 +112,8 @@ def init_with_backoff(terminal_path: str) -> bool:
         except Exception:
             pass
 
-        if not mt5.initialize(path=terminal_path):
+        init_ok = mt5.initialize() if sys.platform != "win32" else mt5.initialize(path=terminal_path)
+        if not init_ok:
             err = mt5.last_error()
             logger.warning("mt5.initialize() failed (attempt %d): %s", attempt, err)
             continue
