@@ -14,8 +14,9 @@ from app.models.app_settings import AppSetting
 # Known settings keys
 KEY_DEFAULT_MT5_BASE_PATH = "default_mt5_base_path"
 KEY_DEFAULT_TERMINALS_DIR = "default_terminals_dir"
+KEY_STEALTH_MODE = "stealth_mode"
 
-KNOWN_KEYS = {KEY_DEFAULT_MT5_BASE_PATH, KEY_DEFAULT_TERMINALS_DIR}
+KNOWN_KEYS = {KEY_DEFAULT_MT5_BASE_PATH, KEY_DEFAULT_TERMINALS_DIR, KEY_STEALTH_MODE}
 
 
 def get_setting(db: Session, key: str) -> Optional[str]:

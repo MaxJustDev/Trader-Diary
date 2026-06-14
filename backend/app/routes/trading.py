@@ -12,6 +12,7 @@ from app.services.position_sizer import PositionSizer
 from app.services.rule_checker import RuleChecker
 from app.services.mt5_auth import login_account
 from app.services.stealth import batch_delay_seconds
+from app.services.settings import get_setting, KEY_STEALTH_MODE
 import logging
 from app.utils.async_helpers import run_mt5, run_db
 
@@ -309,6 +310,9 @@ async def execute_batch(
     sizer = PositionSizer(mt5)
     checker = RuleChecker(db)
 
+    # Read DB-persisted stealth mode once; None falls back to env STEALTH_MODE in stealth.py
+    stealth_mode = get_setting(db, KEY_STEALTH_MODE) or None
+
     accounts = (
         db.query(Account)
         .filter(Account.id.in_(request.account_ids))
@@ -387,7 +391,7 @@ async def execute_batch(
         })
 
         if idx < len(prepared) - 1:
-            await asyncio.sleep(batch_delay_seconds())
+            await asyncio.sleep(batch_delay_seconds(mode=stealth_mode))
 
     await run_mt5(mt5.shutdown)
 

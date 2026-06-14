@@ -113,11 +113,15 @@ export default function SettingsPage() {
     const [fundDrafts, setFundDrafts] = useState<Record<number, string>>({});
     const [fundSaving, setFundSaving] = useState<number | null>(null);
 
+    const [stealthMode, setStealthMode] = useState<string>("off");
+    const [stealthSaving, setStealthSaving] = useState(false);
+
     const loadAll = useCallback(async () => {
         try {
             const data = await apiClient.settings.getAll();
             setDefaultMt5Path(data.settings.default_mt5_base_path ?? "");
             setDefaultTerminalsDir(data.settings.default_terminals_dir ?? "");
+            setStealthMode(data.settings.stealth_mode ?? "off");
             setFunds(data.fund_overrides);
             setFundDrafts(Object.fromEntries(data.fund_overrides.map((f) => [f.id, f.mt5_base_path ?? ""])));
         } catch (e: any) {
@@ -195,6 +199,19 @@ export default function SettingsPage() {
         }
     }
 
+    async function saveStealthMode(mode: string) {
+        setStealthSaving(true);
+        try {
+            await apiClient.settings.upsert("stealth_mode", mode === "off" ? null : mode);
+            setStealthMode(mode);
+            toast.success(`Stealth mode set to ${mode}`);
+        } catch (e: any) {
+            toast.error(`Save failed: ${e.message ?? "unknown"}`);
+        } finally {
+            setStealthSaving(false);
+        }
+    }
+
     async function saveFund(fundId: number) {
         setFundSaving(fundId);
         try {
@@ -249,6 +266,41 @@ export default function SettingsPage() {
                     onSave={saveDir}
                     saving={dirSaving}
                 />
+
+                <div style={{ marginBottom: 20 }}>
+                    <label style={{ display: "block", marginBottom: 6, color: "var(--text-soft)", fontSize: 13, fontWeight: 600 }}>
+                        Stealth mode
+                    </label>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <select
+                            value={stealthMode}
+                            onChange={(e) => setStealthMode(e.target.value)}
+                            className="input-diary"
+                            style={{ width: 160, fontFamily: "var(--font-jbmono), monospace", fontSize: 12 }}
+                        >
+                            <option value="off">off</option>
+                            <option value="tier1">tier1</option>
+                            <option value="tier2">tier2</option>
+                        </select>
+                        <button
+                            onClick={() => saveStealthMode(stealthMode)}
+                            disabled={stealthSaving}
+                            style={{
+                                padding: "0 14px", fontSize: 12, fontWeight: 600,
+                                background: "rgba(240,180,41,0.10)", border: "1px solid rgba(240,180,41,0.30)",
+                                color: "var(--gold)", borderRadius: 6, cursor: stealthSaving ? "wait" : "pointer",
+                                opacity: stealthSaving ? 0.5 : 1,
+                            }}
+                        >
+                            {stealthSaving ? "..." : "Save"}
+                        </button>
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                        <strong style={{ color: "var(--text-soft)" }}>off</strong> — no stealth, raw orders.{" "}
+                        <strong style={{ color: "var(--text-soft)" }}>tier1</strong> — magic=0, random comment, inter-account jitter.{" "}
+                        <strong style={{ color: "var(--text-soft)" }}>tier2</strong> — tier1 + GUI-path order reason (requires Wine/Linux deploy).
+                    </div>
+                </div>
             </div>
 
             <div style={{

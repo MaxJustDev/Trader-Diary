@@ -178,7 +178,7 @@ class ApiClient {
     settings = {
         getAll: () =>
             this.request<{
-                settings: { default_mt5_base_path: string | null; default_terminals_dir: string | null };
+                settings: { default_mt5_base_path: string | null; default_terminals_dir: string | null; stealth_mode: string | null };
                 fund_overrides: { id: number; fund_name: string; server_pattern: string; mt5_base_path: string | null }[];
             }>("/api/settings"),
         upsert: (key: string, value: string | null) =>
