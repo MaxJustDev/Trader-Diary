@@ -32,3 +32,16 @@ def default_max_active_accounts():
     if env:
         return int(env)
     return 1 if sys.platform != "win32" else None
+
+
+# ── Stealth order mode (reduce EA/automation footprint) ───────────────────────
+STEALTH_MODE = os.getenv("STEALTH_MODE", "tier1")  # off | tier1 | tier2
+# Comma list of natural-looking comments; one is chosen at random per order.
+STEALTH_COMMENTS = [
+    c.strip()
+    for c in os.getenv("STEALTH_COMMENTS", ",").split(",")
+]
+# Per-account jitter range "min-max" in ms, applied before sending each order.
+STEALTH_JITTER_MS = os.getenv("STEALTH_JITTER_MS", "300-2500")
+# Optional fractional volume variance (e.g. 0.05 = ±5%); 0 disables.
+STEALTH_VOLUME_VARIANCE = float(os.getenv("STEALTH_VOLUME_VARIANCE", "0.0"))
