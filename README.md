@@ -13,6 +13,8 @@ Local-first MetaTrader 5 account manager and batch trading tool for prop firm tr
 - Track fund-phase rules (daily / max drawdown, profit targets) and hard-block trades that would violate them
 - Real-time equity stream via WebSocket, persisted to SQLite for analytics
 - News calendar, trailing stops, symbol heatmap, trade journal — all local, no cloud sync
+- Run headless on a Linux box (MT5 under Wine) and trade from your phone or PC over the LAN
+- Stealth order mode to reduce the automation footprint on EA-restricted prop accounts
 
 ---
 
@@ -86,6 +88,45 @@ Compress-Archive -Path TraderDiary -DestinationPath TraderDiary.zip
 
 ---
 
+## Run on a Linux server (Wine)
+
+Run TraderDiary always-on on a low-resource Linux box (e.g. an Intel Atom). MT5 is
+Windows-only, so it runs under **Wine + Xvfb** behind a thin JSON bridge; the same
+app code talks to the native module on Windows and to the bridge on Linux. Open the
+UI from your phone or PC on the same network.
+
+```bash
+./deploy/linux/setup.sh                       # Wine + MT5 + Python deps
+cp deploy/linux/.env.linux.example backend/.env   # then set ENCRYPTION_KEY
+./deploy/linux/install.sh                      # systemd autostart
+./deploy/linux/status.sh                       # health + LAN URL + QR
+```
+
+Full guide, architecture, and troubleshooting: [`deploy/linux/README.md`](./deploy/linux/README.md).
+
+> On a low-RAM box this runs **one active account at a time** (`MAX_ACTIVE_ACCOUNTS`,
+> default 1 on Linux) — a Wine MT5 terminal is RAM-heavy.
+
+---
+
+## Stealth order mode
+
+For prop accounts that ban EAs, `STEALTH_MODE` (`off | tier1 | tier2`) reduces the
+automation footprint of placed orders.
+
+- **`tier1`** (default): `magic=0`, natural/empty comment, per-account timing jitter,
+  optional volume variance. Applied to entries and close/partial-close.
+- **`tier2`**: GUI automation so the deal `reason` reads as a manual `CLIENT` trade —
+  **design-only** ([`deploy/linux/STEALTH_TIER2.md`](./deploy/linux/STEALTH_TIER2.md)),
+  not yet implemented.
+
+> ⚠️ Tier 1 is **on by default**, so orders use `magic=0` / empty comment instead of
+> the legacy `magic=234000` / `"TraderDiary"`. Set `STEALTH_MODE=off` to restore the
+> old behavior. Tier 1 cannot change the server-stamped deal `reason` (that needs
+> Tier 2). This is your firm's contract rule, not a technical wall — your risk.
+
+---
+
 ## Project layout
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full file map + data flow.
@@ -95,12 +136,13 @@ TraderDiary/
 ├── backend/                Python FastAPI + SQLAlchemy + MetaTrader5
 │   ├── app/
 │   │   ├── main.py         FastAPI app + startup migrations
-│   │   ├── config.py       Timing constants
+│   │   ├── config.py       Timing + MT5-bridge + stealth + low-resource config
 │   │   ├── database.py     SQLite engine + session factory
 │   │   ├── schemas.py      Pydantic request/response models
 │   │   ├── models/         SQLAlchemy ORM models
 │   │   ├── routes/         HTTP + WebSocket handlers
-│   │   ├── services/       Business logic (MT5, sizing, rules, encryption)
+│   │   ├── services/       Business logic (MT5 provider/bridge client, sizing, rules, encryption, stealth)
+│   │   ├── workers/        MT5 worker process + pool protocol (multi-account)
 │   │   ├── data/           Seed data (fund_templates.json)
 │   │   └── utils/          Async bridge helpers (run_mt5, run_db)
 │   ├── tests/              Pytest suites
@@ -111,6 +153,8 @@ TraderDiary/
 │   ├── hooks/              Custom hooks (useMT5Stream, useFocusTrap)
 │   ├── lib/                ApiClient, types, Zustand stores
 │   └── __tests__/          Vitest suites
+├── deploy/
+│   └── linux/              Wine bridge server + setup/init scripts + systemd units
 ├── docs/
 │   ├── superpowers/        Design specs + implementation plans
 │   └── vi/                 Vietnamese quickstart
