@@ -1,7 +1,7 @@
+"""Centralized constants and tunables for the backend."""
+
 import os
 import sys
-
-"""Centralized constants and tunables for the backend."""
 
 # WebSocket stream loop
 WS_TICK_INTERVAL_SECONDS = 1.0
