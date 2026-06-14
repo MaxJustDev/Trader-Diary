@@ -1,0 +1,20 @@
+[Unit]
+Description=TraderDiary MT5 bridge (Wine + Xvfb)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Environment=WINEPREFIX=/opt/traderdiary/wine
+Environment=WINEARCH=win64
+Environment=DISPLAY=:99
+WorkingDirectory=__REPO_ROOT__
+ExecStart=/usr/bin/env bash __REPO_ROOT__/deploy/linux/start-bridge.sh
+Restart=always
+RestartSec=5
+# Guard against a Wine memory leak OOM-ing the box (restarts instead).
+MemoryMax=900M
+
+[Install]
+WantedBy=multi-user.target

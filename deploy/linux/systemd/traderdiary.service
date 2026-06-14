@@ -1,0 +1,16 @@
+[Unit]
+Description=TraderDiary web app (FastAPI)
+After=traderdiary-bridge.service
+Requires=traderdiary-bridge.service
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__REPO_ROOT__/backend
+ExecStart=/usr/bin/env bash __REPO_ROOT__/deploy/linux/start-app.sh
+Restart=always
+RestartSec=5
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target
