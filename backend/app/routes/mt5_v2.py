@@ -19,7 +19,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.services.worker_pool import WorkerError, WorkerNotRunning, pool
+from app.services.worker_pool import WorkerError, WorkerLimitReached, WorkerNotRunning, pool
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ async def connect(account_db_id: int):
     """Spawn a worker process for the given account if not already running."""
     try:
         await pool.spawn(account_db_id)
+    except WorkerLimitReached as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.exception("spawn failed for account_db_id=%d", account_db_id)
         raise HTTPException(status_code=500, detail=f"spawn failed: {e}")
