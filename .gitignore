@@ -13,6 +13,8 @@
 !docs/superpowers/specs/*.md
 !docs/vi/
 !docs/vi/*.md
+!deploy/
+!deploy/linux/*.md
 
 # Env files — keep example, hide real
 .env
