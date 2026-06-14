@@ -150,6 +150,7 @@ class BridgeClient:
                 try:
                     self._connect()
                 except (OSError, BridgeError, ValueError) as e:
+                    self._reset()
                     self._last_error = (-1, f"bridge transport: {e}")
             constants = dict(self._constants)
         if name in constants:
