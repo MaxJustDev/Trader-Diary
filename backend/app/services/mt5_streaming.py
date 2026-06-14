@@ -11,7 +11,7 @@ the WS loop (`check_trailing_stops`) and the `/trailing-stop/set` /
 from datetime import datetime
 import logging
 
-import MetaTrader5 as _mt5
+from app.services.mt5_provider import mt5 as _mt5
 
 from app.database import SessionLocal
 from app.models.accounts import Account

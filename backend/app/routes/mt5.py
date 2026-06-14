@@ -16,7 +16,7 @@ import asyncio
 import json
 import logging
 from app.utils.async_helpers import run_mt5, run_db
-import MetaTrader5 as _mt5
+from app.services.mt5_provider import mt5 as _mt5
 
 logger = logging.getLogger(__name__)
 

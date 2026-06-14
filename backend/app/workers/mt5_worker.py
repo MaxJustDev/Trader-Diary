@@ -37,7 +37,7 @@ if "DOTENV_LOADED" not in os.environ:
     dotenv.load_dotenv(os.path.join(get_base_dir(), ".env"))
     os.environ["DOTENV_LOADED"] = "1"
 
-import MetaTrader5 as mt5  # noqa: E402
+from app.services.mt5_provider import mt5  # noqa: E402
 
 from app.database import SessionLocal  # noqa: E402
 from app.models.accounts import Account  # noqa: E402

@@ -10,7 +10,7 @@ from app.models.funds import FundProgram, FundPhaseRule
 from app.models.equity_snapshot import EquitySnapshot
 from app.models.trade_record import TradeRecord
 from app.services.rule_checker import RuleChecker
-import MetaTrader5 as _mt5
+from app.services.mt5_provider import mt5 as _mt5
 import logging
 
 router = APIRouter()

@@ -15,7 +15,7 @@ import threading
 import time
 from typing import Callable, Optional
 
-import MetaTrader5 as mt5
+from app.services.mt5_provider import mt5
 import psutil
 
 logger = logging.getLogger(__name__)

@@ -1,4 +1,4 @@
-import MetaTrader5 as mt5
+from app.services.mt5_provider import mt5
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import os
