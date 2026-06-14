@@ -24,6 +24,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Optional
 
+from app.config import default_max_active_accounts
 from app.workers import protocol as p
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,10 @@ class WorkerNotRunning(Exception):
     """Tried to call a worker that hasn't been spawned (or has died)."""
 
 
+class WorkerLimitReached(Exception):
+    """Tried to spawn more workers than this server allows (RAM-bound)."""
+
+
 @dataclass
 class _WorkerHandle:
     account_db_id: int
@@ -57,13 +62,19 @@ class _WorkerHandle:
 
 
 class WorkerPool:
-    def __init__(self, *, worker_module: str = "app.workers.mt5_worker") -> None:
+    def __init__(
+        self,
+        *,
+        worker_module: str = "app.workers.mt5_worker",
+        max_workers: int | None = None,
+    ) -> None:
         self._workers: dict[int, _WorkerHandle] = {}
         self._subscribers: list[asyncio.Queue[tuple[int, dict]]] = []
         self._subscribers_lock = asyncio.Lock()
         self._worker_module = worker_module
         self._python_exe = sys.executable
         self._spawn_locks: dict[int, asyncio.Lock] = {}
+        self._max_workers = max_workers
 
     def _spawn_args(self, account_db_id: int) -> list[str]:
         """Return argv for spawning a worker process.
@@ -88,6 +99,18 @@ class WorkerPool:
                     return
                 # Dead worker still in dict — clean up before respawn.
                 self._workers.pop(account_db_id, None)
+
+            if self._max_workers is not None:
+                active = {
+                    aid
+                    for aid, h in self._workers.items()
+                    if h.process.returncode is None
+                }
+                if account_db_id not in active and len(active) >= self._max_workers:
+                    raise WorkerLimitReached(
+                        f"This server runs at most {self._max_workers} account(s) "
+                        f"at a time. Deactivate the current account first."
+                    )
 
             argv = self._spawn_args(account_db_id)
             logger.info("Spawning worker for account_db_id=%d: %s", account_db_id, argv)
@@ -281,4 +304,4 @@ class WorkerPool:
 
 
 # ── Module-level instance owned by FastAPI app ────────────────────────────────
-pool = WorkerPool()
+pool = WorkerPool(max_workers=default_max_active_accounts())
