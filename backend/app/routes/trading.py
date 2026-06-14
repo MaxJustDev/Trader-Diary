@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -9,6 +11,7 @@ from app.services.mt5_service import MT5Service
 from app.services.position_sizer import PositionSizer
 from app.services.rule_checker import RuleChecker
 from app.services.mt5_auth import login_account
+from app.services.stealth import batch_delay_seconds
 import logging
 from app.utils.async_helpers import run_mt5, run_db
 
@@ -357,7 +360,7 @@ async def execute_batch(
 
     # Phase 2: execute orders
     results = list(blocked_results)
-    for entry in prepared:
+    for idx, entry in enumerate(prepared):
         account = entry["account"]
         calc = entry["calc"]
         result = await run_mt5(_execute_single_trade, mt5, account, calc, request)
@@ -382,6 +385,9 @@ async def execute_batch(
             "order": order_ticket,
             "error": result.get("error"),
         })
+
+        if idx < len(prepared) - 1:
+            await asyncio.sleep(batch_delay_seconds())
 
     await run_mt5(mt5.shutdown)
 

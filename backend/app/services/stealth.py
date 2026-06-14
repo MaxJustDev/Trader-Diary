@@ -65,3 +65,15 @@ def apply_stealth(
         request["volume"] = round(base * factor, 2)
 
     return request
+
+
+def batch_delay_seconds(*, mode: Optional[str] = None, spec: str = STEALTH_JITTER_MS) -> float:
+    """Delay to sleep before sending the next account's order in a batch.
+
+    0 when stealth is off; a jittered value otherwise so orders across accounts
+    don't share an identical timestamp (a copy-trade detection signal).
+    """
+    mode = mode if mode is not None else STEALTH_MODE
+    if mode == "off":
+        return 0.0
+    return jitter_seconds(spec)
