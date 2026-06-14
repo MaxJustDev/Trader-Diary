@@ -3,10 +3,34 @@
 .claude
 **/*.md
 !README.md
+!ARCHITECTURE.md
+!CONTRIBUTING.md
+!docs/
+!docs/superpowers/
+!docs/superpowers/plans/
+!docs/superpowers/plans/*.md
+!docs/superpowers/specs/
+!docs/superpowers/specs/*.md
+!docs/vi/
+!docs/vi/*.md
+!deploy/
+!deploy/linux/*.md
+
+# Env files — keep example, hide real
+.env
+!.env.example
 
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# Node
+node_modules/
+.next/
+out/
 
 # Database
 *.db
@@ -14,7 +38,6 @@ __pycache__/
 # Build artifacts
 dist/
 build/
-build.bat
 
 # Misc
 nul

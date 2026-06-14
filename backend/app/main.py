@@ -1,5 +1,12 @@
+import asyncio
 import os
 import sys
+
+# Required for asyncio.create_subprocess_exec on Windows (worker pool).
+# Set BEFORE the event loop is created.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from dotenv import load_dotenv
 # Load environment variables FIRST before importing routes
 from app.database import get_base_dir
@@ -10,9 +17,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text, inspect
 from app.routes import accounts, funds, mt5, trading, analytics
+from app.routes import news, system as system_routes
+from app.routes import mt5_v2, trading_v2
+from app.routes import settings as settings_routes
+from app.services.worker_pool import pool as worker_pool
 from app.database import engine, Base
 # Import all models so Base.metadata knows about them
-from app.models import Fund, FundProgram, FundPhaseRule, Account, EquitySnapshot, TradeRecord  # noqa: F401
+from app.models import Fund, FundProgram, FundPhaseRule, Account, EquitySnapshot, TradeRecord, AppSetting  # noqa: F401
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -36,6 +47,7 @@ def _migrate():
             ("daily_open_equity", "FLOAT"),
             ("daily_open_date", "VARCHAR(10)"),
             ("peak_eod_balance", "FLOAT"),
+            ("symbol_aliases", "TEXT"),
         ]:
             if col not in acct_cols:
                 conn.execute(text(f"ALTER TABLE accounts ADD COLUMN {col} {coltype}"))
@@ -45,12 +57,41 @@ def _migrate():
         for col, coltype in [
             ("name_format", "VARCHAR(200)"),
             ("account_name_patterns", "TEXT"),
+            ("mt5_base_path", "VARCHAR(500)"),
         ]:
             if col not in fund_cols:
                 conn.execute(text(f"ALTER TABLE funds ADD COLUMN {col} {coltype}"))
 
-        # New tables (created via create_all above, but listed here for clarity)
-        # equity_snapshots and trade_records are auto-created by Base.metadata.create_all
+        # FundProgram table new columns
+        fp_cols = {c["name"] for c in inspector.get_columns("fund_programs")}
+        for col, coltype in [
+            ("max_risk_per_trade_pct", "FLOAT"),
+        ]:
+            if col not in fp_cols:
+                conn.execute(text(f"ALTER TABLE fund_programs ADD COLUMN {col} {coltype}"))
+
+        # trade_records new columns
+        tr_cols = {c["name"] for c in inspector.get_columns("trade_records")}
+        for col, coltype in [
+            ("notes", "VARCHAR(1000)"),
+            ("tags", "VARCHAR(500)"),
+            ("close_price", "FLOAT"),
+            ("realized_pnl", "FLOAT"),
+            ("closed_at", "TIMESTAMP"),
+        ]:
+            if col not in tr_cols:
+                conn.execute(text(f"ALTER TABLE trade_records ADD COLUMN {col} {coltype}"))
+
+        # Composite indexes for analytics hot paths (idempotent)
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS ix_trade_records_account_executed "
+            "ON trade_records(account_db_id, executed_at)",
+            "CREATE INDEX IF NOT EXISTS ix_equity_snapshots_account_recorded "
+            "ON equity_snapshots(account_db_id, recorded_at)",
+            "CREATE INDEX IF NOT EXISTS ix_fund_programs_fund_id "
+            "ON fund_programs(fund_id)",
+        ):
+            conn.execute(text(stmt))
 
         conn.commit()
 
@@ -82,6 +123,16 @@ app.include_router(funds.router, prefix="/api/funds", tags=["Funds"])
 app.include_router(mt5.router, prefix="/api/mt5", tags=["MT5"])
 app.include_router(trading.router, prefix="/api/trading", tags=["Trading"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(news.router, prefix="/api/news", tags=["News"])
+app.include_router(system_routes.router, prefix="/api/system", tags=["System"])
+app.include_router(mt5_v2.router, prefix="/api/mt5/v2", tags=["MT5 v2 (multi-process)"])
+app.include_router(trading_v2.router, prefix="/api/trading/v2", tags=["Trading v2 (parallel)"])
+app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settings"])
+
+
+@app.on_event("shutdown")
+async def _shutdown_worker_pool() -> None:
+    await worker_pool.shutdown_all()
 
 
 # Serve frontend static files (must be AFTER API routers)

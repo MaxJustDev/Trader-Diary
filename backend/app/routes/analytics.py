@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException  # noqa: F401 (HTTPException used below)
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional
@@ -9,9 +9,8 @@ from app.models.accounts import Account
 from app.models.funds import FundProgram, FundPhaseRule
 from app.models.equity_snapshot import EquitySnapshot
 from app.models.trade_record import TradeRecord
-from app.services.mt5_service import MT5Service
-from app.services.encryption import decrypt_password
 from app.services.rule_checker import RuleChecker
+from app.services.mt5_provider import mt5 as _mt5
 import logging
 
 router = APIRouter()
@@ -160,6 +159,111 @@ async def get_fund_status(db: Session = Depends(get_db)):
     return {"accounts": results}
 
 
+def _serialize_trade(t: TradeRecord) -> dict:
+    return {
+        "id": t.id,
+        "account_login": t.account_login,
+        "symbol": t.symbol,
+        "direction": t.direction,
+        "lot_size": t.lot_size,
+        "entry_price": t.entry_price,
+        "sl_price": t.sl_price,
+        "tp_price": t.tp_price,
+        "sl_pips": t.sl_pips,
+        "tp_pips": t.tp_pips,
+        "risk_pct": t.risk_pct,
+        "risk_amount": t.risk_amount,
+        "reward_amount": t.reward_amount,
+        "rr_ratio": t.rr_ratio,
+        "order_ticket": t.order_ticket,
+        "success": t.success,
+        "error_msg": t.error_msg,
+        "notes": t.notes,
+        "tags": t.tags,
+        "close_price": t.close_price,
+        "realized_pnl": t.realized_pnl,
+        "closed_at": t.closed_at.isoformat() if t.closed_at else None,
+        "executed_at": t.executed_at.isoformat() if t.executed_at else None,
+    }
+
+
+@router.post("/sync-realized-pnl")
+async def sync_realized_pnl(db: Session = Depends(get_db)):
+    """Match closed MT5 deals to trade records by order ticket and fill realized_pnl."""
+    from app.services.mt5_singleton import mt5_service, get_connected_account_id
+    if not mt5_service.is_initialized or not get_connected_account_id():
+        raise HTTPException(status_code=400, detail="MT5 must be connected to sync P&L")
+
+    # Pull all trade records that have an order ticket but no realized_pnl yet
+    pending = (
+        db.query(TradeRecord)
+        .filter(TradeRecord.order_ticket.isnot(None), TradeRecord.realized_pnl.is_(None))
+        .all()
+    )
+    if not pending:
+        return {"synced": 0, "message": "Nothing to sync"}
+
+    # Fetch last 365 days of MT5 history
+    date_from = datetime.now() - timedelta(days=365)
+    deals = _mt5.history_deals_get(date_from, datetime.now())
+    if deals is None:
+        raise HTTPException(status_code=500, detail="Failed to fetch MT5 deal history")
+
+    # Build lookup: order → list of OUT deals (closing deals)
+    from collections import defaultdict as _ddict
+    order_to_deal: dict = _ddict(list)
+    for d in deals:
+        # DEAL_ENTRY_OUT = 1 (closing deal)
+        if hasattr(d, "entry") and d.entry == 1:
+            order_to_deal[d.order].append(d)
+
+    synced = 0
+    for trade in pending:
+        closing_deals = order_to_deal.get(trade.order_ticket, [])
+        if not closing_deals:
+            continue
+        # Sum profit across all closing deals for this order (partial closes)
+        total_pnl = sum(d.profit + getattr(d, "commission", 0) + getattr(d, "swap", 0) for d in closing_deals)
+        last_deal = max(closing_deals, key=lambda d: d.time)
+        trade.realized_pnl = round(total_pnl, 2)
+        trade.close_price = last_deal.price
+        trade.closed_at = datetime.fromtimestamp(last_deal.time)
+        synced += 1
+
+    db.commit()
+    return {"synced": synced, "total_pending": len(pending)}
+
+
+class TradeNoteUpdate(BaseModel):
+    notes: str
+
+
+@router.patch("/trade/{trade_id}/note")
+async def update_trade_note(trade_id: int, data: TradeNoteUpdate, db: Session = Depends(get_db)):
+    """Update the notes field on a trade record."""
+    trade = db.query(TradeRecord).filter(TradeRecord.id == trade_id).first()
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    trade.notes = data.notes.strip()
+    db.commit()
+    return {"id": trade_id, "notes": trade.notes}
+
+
+class TradeTagsUpdate(BaseModel):
+    tags: str  # comma-separated
+
+
+@router.patch("/trade/{trade_id}/tags")
+async def update_trade_tags(trade_id: int, data: TradeTagsUpdate, db: Session = Depends(get_db)):
+    """Update the tags field on a trade record."""
+    trade = db.query(TradeRecord).filter(TradeRecord.id == trade_id).first()
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    trade.tags = data.tags.strip()
+    db.commit()
+    return {"id": trade_id, "tags": trade.tags}
+
+
 class AccountAnalyticsUpdate(BaseModel):
     next_payout_date: Optional[str] = None
     starting_balance: Optional[float] = None
@@ -274,29 +378,7 @@ async def get_journal(
             "total_risk": round(total_risk, 2),
             "avg_rr": round(sum(rr_vals) / len(rr_vals), 2) if rr_vals else None,
             "balance_change": balance_change,
-            "trades": [
-                {
-                    "id": t.id,
-                    "account_login": t.account_login,
-                    "symbol": t.symbol,
-                    "direction": t.direction,
-                    "lot_size": t.lot_size,
-                    "entry_price": t.entry_price,
-                    "sl_price": t.sl_price,
-                    "tp_price": t.tp_price,
-                    "sl_pips": t.sl_pips,
-                    "tp_pips": t.tp_pips,
-                    "risk_pct": t.risk_pct,
-                    "risk_amount": t.risk_amount,
-                    "reward_amount": t.reward_amount,
-                    "rr_ratio": t.rr_ratio,
-                    "order_ticket": t.order_ticket,
-                    "success": t.success,
-                    "error_msg": t.error_msg,
-                    "executed_at": t.executed_at.isoformat() if t.executed_at else None,
-                }
-                for t in day_trades
-            ],
+            "trades": [_serialize_trade(t) for t in day_trades],
         })
 
     return {"days": journal_days}
@@ -310,27 +392,4 @@ async def get_trade_history(account_id: Optional[int] = None, limit: int = 200, 
         query = query.filter(TradeRecord.account_db_id == account_id)
     trades = query.order_by(TradeRecord.executed_at.desc()).limit(limit).all()
 
-    data = [
-        {
-            "id": t.id,
-            "account_login": t.account_login,
-            "symbol": t.symbol,
-            "direction": t.direction,
-            "lot_size": t.lot_size,
-            "entry_price": t.entry_price,
-            "sl_price": t.sl_price,
-            "tp_price": t.tp_price,
-            "sl_pips": t.sl_pips,
-            "tp_pips": t.tp_pips,
-            "risk_pct": t.risk_pct,
-            "risk_amount": t.risk_amount,
-            "reward_amount": t.reward_amount,
-            "rr_ratio": t.rr_ratio,
-            "order_ticket": t.order_ticket,
-            "success": t.success,
-            "error_msg": t.error_msg,
-            "executed_at": t.executed_at.isoformat() if t.executed_at else None,
-        }
-        for t in trades
-    ]
-    return {"trades": data}
+    return {"trades": [_serialize_trade(t) for t in trades]}

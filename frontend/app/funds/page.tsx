@@ -66,14 +66,15 @@ export default function FundsPage() {
 
     if (loading) {
         return (
-            <div className="p-8 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+            <div className="page-enter" style={{ padding: "clamp(16px, 3vw, 36px)" }}>
+                <div className="shimmer" style={{ width: "200px", height: "26px", borderRadius: "8px", marginBottom: "24px" }} />
+                <div className="shimmer" style={{ height: "200px", borderRadius: "14px" }} />
             </div>
         );
     }
 
     return (
-        <div className="p-8">
+        <div className="page-enter" style={{ padding: "clamp(16px, 3vw, 36px)" }}>
             <ConfirmModal
                 isOpen={deleteConfirm !== null}
                 title="Delete Fund"
@@ -83,29 +84,49 @@ export default function FundsPage() {
                 onConfirm={doDelete}
                 onCancel={() => setDeleteConfirm(null)}
             />
-            <div className="flex items-center justify-between mb-6">
-                <h1 className="text-3xl font-bold text-slate-100">Funds Management</h1>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+                <div>
+                    <div className="section-label" style={{ marginBottom: "4px" }}>Trading Journal</div>
+                    <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#f0f4f8", margin: 0, letterSpacing: "-0.01em" }}>
+                        Prop Funds
+                    </h1>
+                </div>
                 <button
                     onClick={handleRefresh}
                     disabled={refreshing}
-                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 disabled:opacity-50 text-white rounded-lg text-sm font-medium shadow-lg shadow-blue-500/20 transition-all"
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "7px",
+                        padding: "8px 16px",
+                        background: "rgba(34,211,238,0.08)",
+                        border: "1px solid rgba(34,211,238,0.2)",
+                        color: "var(--cyan)",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        fontWeight: 500,
+                        cursor: refreshing ? "not-allowed" : "pointer",
+                        opacity: refreshing ? 0.7 : 1,
+                        transition: "all 150ms",
+                        fontFamily: "'Sora', sans-serif",
+                    }}
                 >
-                    <RefreshCw size={15} className={refreshing ? "animate-spin" : ""} />
+                    <RefreshCw size={13} style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }} />
                     {refreshing ? "Refreshing..." : "Refresh Templates"}
                 </button>
             </div>
 
             {/* Configured Funds */}
             <div>
-                <h2 className="text-xl font-semibold mb-4 text-slate-100">Configured Funds</h2>
-                <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-xl overflow-hidden">
-                    <table className="w-full">
-                        <thead className="bg-white/[0.04]">
+                <div className="section-label" style={{ marginBottom: "12px" }}>Configured Funds</div>
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
                             <tr>
-                                <th className="text-left p-4 font-semibold text-slate-400">Fund Name</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Server Pattern</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Programs</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Actions</th>
+                                <th className="th-diary">Fund Name</th>
+                                <th className="th-diary">Server Pattern</th>
+                                <th className="th-diary">Programs</th>
+                                <th className="th-diary">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -113,64 +134,63 @@ export default function FundsPage() {
                                 <>
                                     <tr
                                         key={fund.id}
-                                        className="border-t border-white/[0.06] hover:bg-white/[0.04] cursor-pointer"
+                                        style={{ cursor: "pointer", transition: "background 100ms" }}
+                                        onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.025)"}
+                                        onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = "transparent"}
                                         onClick={() => setExpandedFund(expandedFund === fund.id ? null : fund.id)}
                                     >
-                                        <td className="p-4 font-medium text-slate-100">{fund.fund_name}</td>
-                                        <td className="p-4 font-mono text-sm text-slate-400">{fund.server_pattern}</td>
-                                        <td className="p-4">
-                                            <span className="bg-blue-500/[0.15] text-blue-300 border border-blue-500/[0.20] px-2 py-1 rounded text-sm">
+                                        <td className="td-diary" style={{ fontWeight: 600, color: "#f0f4f8" }}>{fund.fund_name}</td>
+                                        <td className="td-diary" style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: "12px", color: "var(--text-muted)" }}>{fund.server_pattern}</td>
+                                        <td className="td-diary">
+                                            <span className="badge" style={{ background: "rgba(34,211,238,0.08)", color: "var(--cyan)", border: "1px solid rgba(34,211,238,0.2)" }}>
                                                 {fund.programs.length} program{fund.programs.length !== 1 ? "s" : ""}
                                             </span>
                                         </td>
-                                        <td className="p-4">
+                                        <td className="td-diary">
                                             <button
                                                 onClick={(e) => { e.stopPropagation(); handleDelete(fund.id); }}
                                                 disabled={deleting === fund.id}
-                                                className="text-red-400 hover:text-red-300 text-sm disabled:opacity-50 transition-colors"
+                                                style={{ fontSize: "12px", color: "var(--rose)", background: "none", border: "none", cursor: "pointer", padding: 0, opacity: deleting === fund.id ? 0.5 : 1, fontFamily: "'Sora', sans-serif" }}
                                             >
                                                 {deleting === fund.id ? "Deleting..." : "Delete"}
                                             </button>
                                         </td>
                                     </tr>
                                     {expandedFund === fund.id && fund.programs.map((prog) => (
-                                        <tr key={`prog-${prog.id}`} className="bg-white/[0.02] border-t border-white/[0.06]">
-                                            <td colSpan={4} className="p-4 pl-8">
-                                                <div className="text-sm">
-                                                    <span className="font-semibold text-slate-200">{prog.program_name}</span>
-                                                    {prog.payout_days && (
-                                                        <span className="text-slate-500 ml-2">
-                                                            Payout: {prog.payout_days}d ({prog.payout_type})
-                                                        </span>
-                                                    )}
-                                                    {prog.min_trading_days && (
-                                                        <span className="text-slate-500 ml-2">
-                                                            Min days: {prog.min_trading_days}
-                                                        </span>
-                                                    )}
-
-                                                    <table className="w-full mt-2 text-xs">
+                                        <tr key={`prog-${prog.id}`} style={{ background: "rgba(255,255,255,0.015)", borderTop: "1px solid var(--border)" }}>
+                                            <td colSpan={4} style={{ padding: "16px 20px 16px 32px" }}>
+                                                <div>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+                                                        <span style={{ fontSize: "13px", fontWeight: 600, color: "#f0f4f8" }}>{prog.program_name}</span>
+                                                        {prog.payout_days && (
+                                                            <span className="badge" style={{ background: "rgba(240,180,41,0.08)", color: "var(--gold)", border: "1px solid rgba(240,180,41,0.2)" }}>
+                                                                Payout {prog.payout_days}d · {prog.payout_type}
+                                                            </span>
+                                                        )}
+                                                        {prog.min_trading_days && (
+                                                            <span className="badge" style={{ background: "rgba(255,255,255,0.05)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                                                                Min {prog.min_trading_days} days
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
                                                         <thead>
-                                                            <tr className="text-slate-500">
-                                                                <th className="text-left py-1">Phase</th>
-                                                                <th className="text-left py-1">Target</th>
-                                                                <th className="text-left py-1">Daily DD</th>
-                                                                <th className="text-left py-1">Max DD</th>
-                                                                <th className="text-left py-1">DD Type</th>
+                                                            <tr>
+                                                                {["Phase", "Target", "Daily DD", "Max DD", "DD Type"].map(h => (
+                                                                    <th key={h} style={{ textAlign: "left", padding: "4px 0", fontSize: "10px", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)" }}>{h}</th>
+                                                                ))}
                                                             </tr>
                                                         </thead>
                                                         <tbody>
                                                             {prog.phase_rules
                                                                 .sort((a, b) => a.phase_order - b.phase_order)
                                                                 .map((rule) => (
-                                                                    <tr key={rule.id} className="border-t border-white/[0.06]">
-                                                                        <td className="py-1 font-medium text-slate-300">{rule.phase_name}</td>
-                                                                        <td className="py-1 text-emerald-400">
-                                                                            {rule.profit_target ? `${rule.profit_target}%` : "—"}
-                                                                        </td>
-                                                                        <td className="py-1 text-red-400">{rule.daily_drawdown}%</td>
-                                                                        <td className="py-1 text-red-400">{rule.max_drawdown}%</td>
-                                                                        <td className="py-1 text-slate-500">{rule.drawdown_type}</td>
+                                                                    <tr key={rule.id} style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                                                                        <td style={{ padding: "6px 0", fontWeight: 500, color: "var(--text-soft)", fontSize: "12px" }}>{rule.phase_name}</td>
+                                                                        <td style={{ padding: "6px 0", color: "var(--emerald)", fontSize: "12px", fontFamily: "'JetBrains Mono', monospace" }}>{rule.profit_target ? `${rule.profit_target}%` : "—"}</td>
+                                                                        <td style={{ padding: "6px 0", color: "var(--rose)", fontSize: "12px", fontFamily: "'JetBrains Mono', monospace" }}>{rule.daily_drawdown}%</td>
+                                                                        <td style={{ padding: "6px 0", color: "var(--rose)", fontSize: "12px", fontFamily: "'JetBrains Mono', monospace" }}>{rule.max_drawdown}%</td>
+                                                                        <td style={{ padding: "6px 0", color: "var(--text-muted)", fontSize: "11px" }}>{rule.drawdown_type}</td>
                                                                     </tr>
                                                                 ))}
                                                         </tbody>
@@ -184,9 +204,25 @@ export default function FundsPage() {
                         </tbody>
                     </table>
                     {funds.length === 0 && (
-                        <div className="p-12 text-center text-slate-600">
-                            <p className="text-lg mb-2">No funds configured</p>
+                        <div style={{ padding: "48px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
+                            <p style={{ fontSize: "14px", color: "var(--text-soft)", marginBottom: "6px" }}>No funds configured</p>
                             <p>Click &quot;Refresh Templates&quot; to load the latest prop firm data.</p>
+                            <button
+                                onClick={handleRefresh}
+                                style={{
+                                    marginTop: 16,
+                                    padding: "8px 16px",
+                                    borderRadius: 6,
+                                    background: "var(--gold-dim)",
+                                    color: "var(--gold)",
+                                    border: "1px solid var(--gold)",
+                                    fontWeight: 600,
+                                    fontSize: 13,
+                                    cursor: "pointer",
+                                }}
+                            >
+                                Load fund templates
+                            </button>
                         </div>
                     )}
                 </div>

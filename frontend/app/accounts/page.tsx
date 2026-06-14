@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api-client";
-import { useAccountStore, useMT5Store } from "@/lib/store";
+import { useAccountStore, useMT5Store, useMT5StreamsV2 } from "@/lib/store";
 import { Fund, FundAccountAnalytics } from "@/lib/types";
 import AddAccountForm from "@/components/forms/AddAccountForm";
 import LiveDataPanel from "@/components/mt5/LiveDataPanel";
@@ -23,6 +23,7 @@ export default function AccountsPage() {
         clearEquityHistory,
         reset,
     } = useMT5Store();
+    const activeStreams = useMT5StreamsV2((s) => s.streams);
     const [funds, setFunds] = useState<Fund[]>([]);
     const [fundAnalytics, setFundAnalytics] = useState<FundAccountAnalytics[]>([]);
     const [loading, setLoading] = useState(false);
@@ -78,7 +79,10 @@ export default function AccountsPage() {
         }
     };
 
-    const analyticsMap = new Map(fundAnalytics.map((a) => [a.account_id, a]));
+    const analyticsMap = useMemo(
+        () => new Map(fundAnalytics.map((a) => [a.account_id, a])),
+        [fundAnalytics],
+    );
 
     const getProgramLabel = (fundProgramId?: number) => {
         if (!fundProgramId) return null;
@@ -143,15 +147,17 @@ export default function AccountsPage() {
         }
     };
 
+    // Multi-process v2: each Connect click spawns a dedicated worker.
+    // Many accounts can be LIVE at once.
     const handleConnect = async (id: number) => {
         setConnecting(String(id));
         try {
-            clearEquityHistory();
-            await apiClient.mt5.connect(id);
-            setConnected(true);
-            setConnectedAccountId(id);
-            await loadData();
-            toast.success("MT5 connected successfully");
+            const result = await apiClient.mt5V2.connect(id);
+            if (result.ready) {
+                toast.success(`Account connected — worker live`);
+            } else {
+                toast.warning(`Worker spawned but MT5 bootstrap pending; watch the live status`);
+            }
         } catch (error: any) {
             toast.error(`Connection failed: ${error.message ?? "Unknown error"}`);
         } finally {
@@ -159,13 +165,10 @@ export default function AccountsPage() {
         }
     };
 
-    const handleDisconnect = async () => {
+    const handleDisconnect = async (id: number) => {
         try {
-            await apiClient.mt5.disconnect();
-            setConnected(false);
-            setConnectedAccountId(null);
-            reset();
-            toast.success("MT5 disconnected");
+            await apiClient.mt5V2.disconnect(id);
+            toast.success("Account disconnected");
         } catch (error: any) {
             toast.error(`Disconnect failed: ${error.message ?? "Unknown error"}`);
         }
@@ -178,10 +181,10 @@ export default function AccountsPage() {
 
     if (loading) {
         return (
-            <div className="p-8">
-                <div className="h-10 w-32 rounded bg-white/[0.06] animate-pulse mb-6" />
-                <div className="h-10 rounded-lg bg-white/[0.06] animate-pulse mb-4" />
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div className="page-enter" style={{ padding: "clamp(16px, 3vw, 36px)" }}>
+                <div className="shimmer" style={{ width: "180px", height: "26px", borderRadius: "8px", marginBottom: "24px" }} />
+                <div className="shimmer" style={{ height: "42px", borderRadius: "10px", marginBottom: "16px" }} />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "14px" }}>
                     {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
                 </div>
             </div>
@@ -189,7 +192,7 @@ export default function AccountsPage() {
     }
 
     return (
-        <div className="p-8">
+        <div className="page-enter" style={{ padding: "clamp(16px, 3vw, 36px)" }}>
             <ConfirmModal
                 isOpen={deleteConfirm !== null}
                 title="Delete Account"
@@ -212,39 +215,67 @@ export default function AccountsPage() {
             )}
 
             {/* Page title + disconnect */}
-            <div className="flex items-center justify-between mb-4">
-                <h1 className="text-3xl font-bold text-slate-100">Accounts</h1>
-                {connected && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+                <div>
+                    <div className="section-label" style={{ marginBottom: "4px" }}>Trading Journal</div>
+                    <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#f0f4f8", margin: 0, letterSpacing: "-0.01em" }}>
+                        Accounts
+                    </h1>
+                </div>
+                {activeStreams.size > 0 && (
                     <button
-                        onClick={handleDisconnect}
-                        className="px-4 py-2 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white rounded-lg text-sm shadow-lg shadow-red-500/20 transition-all"
+                        onClick={async () => {
+                            const ids = Array.from(activeStreams.keys());
+                            await Promise.all(ids.map((id) => apiClient.mt5V2.disconnect(id).catch(() => null)));
+                            toast.success(`Disconnected ${ids.length} live worker(s)`);
+                        }}
+                        style={{
+                            padding: "8px 16px",
+                            background: "rgba(248,113,113,0.10)",
+                            border: "1px solid rgba(248,113,113,0.25)",
+                            color: "var(--rose)",
+                            borderRadius: "8px",
+                            fontSize: "12px",
+                            fontWeight: 500,
+                            cursor: "pointer",
+                            transition: "all 150ms",
+                            fontFamily: "'Sora', sans-serif",
+                        }}
                     >
-                        Disconnect MT5
+                        Disconnect All ({activeStreams.size})
                     </button>
                 )}
             </div>
 
-            {/* Search + filter + view toggle + actions bar */}
-            <div className="flex flex-wrap items-center gap-2 mb-4">
+            {/* Toolbar */}
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
                 <input
                     type="text"
                     placeholder="Search by ID, name, or server..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="flex-1 min-w-[200px] px-3 py-2 text-sm rounded-lg bg-white/[0.06] border border-white/[0.10] text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="input-diary"
+                    style={{ flex: 1, minWidth: "200px" }}
                 />
 
                 {/* Type filter */}
-                <div className="flex rounded-lg overflow-hidden border border-white/[0.10] text-sm">
+                <div style={{ display: "flex", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border)" }}>
                     {(["all", "fund", "personal"] as const).map((t) => (
                         <button
                             key={t}
                             onClick={() => setFilterType(t)}
-                            className={`px-3 py-2 capitalize transition-colors ${
-                                filterType === t
-                                    ? "bg-blue-500/[0.20] text-blue-300"
-                                    : "bg-white/[0.04] text-slate-500 hover:bg-white/[0.08] hover:text-slate-300"
-                            }`}
+                            style={{
+                                padding: "8px 14px",
+                                fontSize: "12px",
+                                fontWeight: filterType === t ? 600 : 400,
+                                background: filterType === t ? "rgba(240,180,41,0.10)" : "rgba(255,255,255,0.03)",
+                                color: filterType === t ? "var(--gold)" : "var(--text-muted)",
+                                border: "none",
+                                cursor: "pointer",
+                                transition: "all 150ms",
+                                fontFamily: "'Sora', sans-serif",
+                                textTransform: "capitalize",
+                            }}
                         >
                             {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
                         </button>
@@ -252,49 +283,84 @@ export default function AccountsPage() {
                 </div>
 
                 {/* View toggle */}
-                <div className="flex rounded-lg overflow-hidden border border-white/[0.10] text-sm">
+                <div style={{ display: "flex", borderRadius: "8px", overflow: "hidden", border: "1px solid var(--border)" }}>
                     <button
                         onClick={() => setViewMode("cards")}
-                        className={`px-3 py-2 transition-colors ${
-                            viewMode === "cards"
-                                ? "bg-blue-500/[0.20] text-blue-300"
-                                : "bg-white/[0.04] text-slate-500 hover:bg-white/[0.08] hover:text-slate-300"
-                        }`}
                         title="Card view"
+                        aria-label="Switch to grid view"
+                        style={{
+                            padding: "8px 12px",
+                            background: viewMode === "cards" ? "rgba(240,180,41,0.10)" : "rgba(255,255,255,0.03)",
+                            color: viewMode === "cards" ? "var(--gold)" : "var(--text-muted)",
+                            border: "none",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            transition: "all 150ms",
+                        }}
                     >
-                        <LayoutGrid className="w-4 h-4" />
+                        <LayoutGrid size={14} />
                     </button>
                     <button
                         onClick={() => setViewMode("table")}
-                        className={`px-3 py-2 transition-colors ${
-                            viewMode === "table"
-                                ? "bg-blue-500/[0.20] text-blue-300"
-                                : "bg-white/[0.04] text-slate-500 hover:bg-white/[0.08] hover:text-slate-300"
-                        }`}
                         title="Table view"
+                        aria-label="Switch to list view"
+                        style={{
+                            padding: "8px 12px",
+                            background: viewMode === "table" ? "rgba(240,180,41,0.10)" : "rgba(255,255,255,0.03)",
+                            color: viewMode === "table" ? "var(--gold)" : "var(--text-muted)",
+                            border: "none",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            transition: "all 150ms",
+                        }}
                     >
-                        <List className="w-4 h-4" />
+                        <List size={14} />
                     </button>
                 </div>
 
                 <button
                     onClick={handleInitAll}
                     disabled={initingAll || accounts.length === 0}
-                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg disabled:opacity-50 text-sm shadow-lg shadow-blue-500/20 transition-all"
+                    style={{
+                        padding: "8px 16px",
+                        background: "rgba(34,211,238,0.08)",
+                        border: "1px solid rgba(34,211,238,0.2)",
+                        color: "var(--cyan)",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        fontWeight: 500,
+                        cursor: initingAll || accounts.length === 0 ? "not-allowed" : "pointer",
+                        opacity: initingAll || accounts.length === 0 ? 0.5 : 1,
+                        transition: "all 150ms",
+                        fontFamily: "'Sora', sans-serif",
+                    }}
                 >
                     {initingAll ? "Initializing..." : "Init All"}
                 </button>
                 <button
                     onClick={() => setShowAddForm(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-lg text-sm shadow-lg shadow-emerald-500/20 transition-all"
+                    style={{
+                        padding: "8px 16px",
+                        background: "rgba(52,211,153,0.10)",
+                        border: "1px solid rgba(52,211,153,0.25)",
+                        color: "var(--emerald)",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        transition: "all 150ms",
+                        fontFamily: "'Sora', sans-serif",
+                    }}
                 >
-                    + Add
+                    + Add Account
                 </button>
             </div>
 
             {/* Init results panel */}
             {initResults && initResults.length > 0 && (
-                <div className="mb-4 bg-white/[0.04] border border-white/[0.08] rounded-lg p-3">
+                <div style={{ marginBottom: "16px", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "10px", padding: "14px 16px" }}>
                     <div className="flex items-center justify-between mb-2">
                         <p className="text-sm font-medium text-slate-300">Init Results</p>
                         <button
@@ -324,10 +390,10 @@ export default function AccountsPage() {
             {viewMode === "cards" && (
                 <>
                     {filtered.length === 0 ? (
-                        <div className="p-12 text-center text-slate-600">
+                        <div style={{ padding: "48px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
                             {accounts.length === 0 ? (
                                 <>
-                                    <p className="text-lg mb-2">No accounts found</p>
+                                    <p style={{ fontSize: "15px", marginBottom: "6px", color: "var(--text-soft)" }}>No accounts found</p>
                                     <p>Add your first MT5 account to get started.</p>
                                 </>
                             ) : (
@@ -335,20 +401,29 @@ export default function AccountsPage() {
                             )}
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                            {filtered.map((account) => (
-                                <AccountCard
-                                    key={account.id}
-                                    account={account}
-                                    analytics={analyticsMap.get(account.id)}
-                                    isConnected={connected && connectedAccountId === account.id}
-                                    isConnecting={connecting === String(account.id)}
-                                    isDeleting={deleting === account.id}
-                                    onConnect={() => handleConnect(account.id)}
-                                    onEdit={() => handleEdit(account)}
-                                    onDelete={() => handleDelete(account.id)}
-                                />
-                            ))}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "14px" }}>
+                            {filtered.map((account) => {
+                                const stream = activeStreams.get(account.id);
+                                const isLive = !!stream;
+                                return (
+                                    <AccountCard
+                                        key={account.id}
+                                        account={account}
+                                        analytics={analyticsMap.get(account.id)}
+                                        isConnected={isLive}
+                                        isConnecting={connecting === String(account.id)}
+                                        isDeleting={deleting === account.id}
+                                        liveBalance={stream?.accountInfo?.balance}
+                                        liveEquity={stream?.accountInfo?.equity}
+                                        liveProfit={stream?.accountInfo?.profit}
+                                        liveHealth={stream?.health}
+                                        onConnect={() => handleConnect(account.id)}
+                                        onDisconnect={() => handleDisconnect(account.id)}
+                                        onEdit={() => handleEdit(account)}
+                                        onDelete={() => handleDelete(account.id)}
+                                    />
+                                );
+                            })}
                         </div>
                     )}
                 </>
@@ -356,144 +431,99 @@ export default function AccountsPage() {
 
             {/* Table view */}
             {viewMode === "table" && (
-                <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl overflow-hidden">
-                    <table className="w-full">
-                        <thead className="bg-white/[0.04]">
+                <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "14px", overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                        <thead>
                             <tr>
-                                <th className="text-left p-4 font-semibold text-slate-400">Account ID</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">MT5 Name</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Server</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Type</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Program / Phase</th>
-                                <th className="text-right p-4 font-semibold text-slate-400">Balance</th>
-                                <th className="text-right p-4 font-semibold text-slate-400">Equity</th>
-                                <th className="text-right p-4 font-semibold text-slate-400">Profit</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Health</th>
-                                <th className="text-left p-4 font-semibold text-slate-400">Actions</th>
+                                {["Account ID", "MT5 Name", "Server", "Type", "Program / Phase", "Balance", "Equity", "Profit", "Health", "Actions"].map((h, i) => (
+                                    <th key={h} className="th-diary" style={{ textAlign: i >= 5 && i <= 7 ? "right" : "left" }}>
+                                        {h}
+                                    </th>
+                                ))}
                             </tr>
                         </thead>
                         <tbody>
                             {filtered.map((account) => {
                                 const programLabel = getProgramLabel(account.fund_program_id);
-                                const isConnected =
-                                    connected && connectedAccountId === account.id;
+                                const isConnected = connected && connectedAccountId === account.id;
                                 const analytics = analyticsMap.get(account.id);
                                 const profit = account.profit ?? 0;
+                                const healthColor = analytics?.locked ? "var(--rose)"
+                                    : (analytics?.daily_status === "violated" || analytics?.max_dd_status === "violated") ? "var(--rose)"
+                                    : (analytics?.daily_status === "warning" || analytics?.max_dd_status === "warning") ? "var(--amber)"
+                                    : analytics ? "var(--emerald)" : "var(--text-dim)";
+                                const healthLabel = analytics?.locked ? "Locked"
+                                    : (analytics?.daily_status === "violated" || analytics?.max_dd_status === "violated") ? "Violation"
+                                    : (analytics?.daily_status === "warning" || analytics?.max_dd_status === "warning") ? "Warning"
+                                    : analytics ? "OK" : "";
                                 return (
                                     <tr
                                         key={account.id}
-                                        className={`border-t border-white/[0.06] hover:bg-white/[0.04] ${
-                                            isConnected ? "bg-emerald-500/[0.05]" : ""
-                                        }`}
+                                        style={{ background: isConnected ? "rgba(52,211,153,0.03)" : "transparent", transition: "background 100ms" }}
+                                        onMouseEnter={(e) => { if (!isConnected) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.025)"; }}
+                                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = isConnected ? "rgba(52,211,153,0.03)" : "transparent"; }}
                                     >
-                                        <td className="p-4 font-mono text-slate-100">{account.account_id}</td>
-                                        <td
-                                            className="p-4 text-sm text-slate-400 max-w-[180px] truncate"
-                                            title={account.mt5_name || ""}
-                                        >
+                                        <td className="td-diary" style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600, color: "#f0f4f8", fontSize: "13px" }}>
+                                            {account.account_id}
+                                        </td>
+                                        <td className="td-diary" style={{ maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: "var(--text-muted)" }} title={account.mt5_name || ""}>
                                             {account.mt5_name || "—"}
                                         </td>
-                                        <td className="p-4 text-sm text-slate-400">{account.server}</td>
-                                        <td className="p-4">
-                                            <span
-                                                className={`px-2 py-1 rounded text-xs font-medium border ${
-                                                    account.account_type === "fund"
-                                                        ? "bg-purple-500/[0.15] text-purple-300 border-purple-500/[0.20]"
-                                                        : "bg-white/[0.08] text-slate-400 border-transparent"
-                                                }`}
-                                            >
+                                        <td className="td-diary" style={{ fontSize: "12px", color: "var(--text-muted)" }}>{account.server}</td>
+                                        <td className="td-diary">
+                                            <span className="badge" style={{
+                                                background: account.account_type === "fund" ? "var(--purple-dim)" : "rgba(255,255,255,0.05)",
+                                                color: account.account_type === "fund" ? "var(--purple)" : "var(--text-muted)",
+                                                border: `1px solid ${account.account_type === "fund" ? "rgba(167,139,250,0.25)" : "transparent"}`,
+                                            }}>
                                                 {account.account_type === "fund" ? "Fund" : "Personal"}
                                             </span>
                                         </td>
-                                        <td className="p-4">
+                                        <td className="td-diary">
                                             {programLabel ? (
-                                                <div>
-                                                    <span className="text-sm text-slate-300">{programLabel}</span>
+                                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                    <span style={{ fontSize: "12px", color: "var(--text-soft)" }}>{programLabel}</span>
                                                     {account.current_phase && (
-                                                        <span className="ml-2 text-xs bg-blue-500/[0.15] text-blue-300 border border-blue-500/[0.20] px-2 py-0.5 rounded">
+                                                        <span className="badge" style={{ background: "rgba(34,211,238,0.08)", color: "var(--cyan)", border: "1px solid rgba(34,211,238,0.2)" }}>
                                                             {account.current_phase}
                                                         </span>
                                                     )}
                                                 </div>
                                             ) : (
-                                                <span className="text-slate-600">—</span>
+                                                <span style={{ color: "var(--text-dim)" }}>—</span>
                                             )}
                                         </td>
-                                        <td className="p-4 text-right font-mono text-sm text-slate-300">
+                                        <td className="td-diary" style={{ textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontSize: "12px", color: "var(--text-soft)" }}>
                                             {formatNumber(account.balance)}
                                         </td>
-                                        <td className="p-4 text-right font-mono text-sm text-slate-300">
+                                        <td className="td-diary" style={{ textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontSize: "12px", color: "var(--text-soft)" }}>
                                             {formatNumber(account.equity)}
                                         </td>
-                                        <td
-                                            className={`p-4 text-right font-mono text-sm ${
-                                                profit > 0
-                                                    ? "text-emerald-400"
-                                                    : profit < 0
-                                                      ? "text-red-400"
-                                                      : "text-slate-400"
-                                            }`}
-                                        >
-                                            {profit >= 0 ? "+" : ""}
-                                            {formatNumber(account.profit)}
+                                        <td className="td-diary" style={{ textAlign: "right", fontFamily: "'JetBrains Mono', monospace", fontSize: "12px", color: profit > 0 ? "var(--emerald)" : profit < 0 ? "var(--rose)" : "var(--text-muted)" }}>
+                                            {profit >= 0 ? "+" : ""}{formatNumber(account.profit)}
                                         </td>
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-1">
-                                                <span
-                                                    className={`w-2 h-2 rounded-full ${isConnected ? "bg-emerald-400" : "bg-slate-600"}`}
-                                                />
-                                                {analytics?.locked && (
-                                                    <span className="text-xs text-red-400">Locked</span>
-                                                )}
-                                                {analytics && !analytics.locked && (
-                                                    <span
-                                                        className={`text-xs ${
-                                                            analytics.daily_status === "violated" ||
-                                                            analytics.max_dd_status === "violated"
-                                                                ? "text-red-400"
-                                                                : analytics.daily_status === "warning" ||
-                                                                    analytics.max_dd_status === "warning"
-                                                                  ? "text-amber-400"
-                                                                  : "text-emerald-400"
-                                                        }`}
-                                                    >
-                                                        {analytics.daily_status === "violated" ||
-                                                        analytics.max_dd_status === "violated"
-                                                            ? "Violation"
-                                                            : analytics.daily_status === "warning" ||
-                                                                analytics.max_dd_status === "warning"
-                                                              ? "Warning"
-                                                              : "OK"}
-                                                    </span>
-                                                )}
+                                        <td className="td-diary">
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: isConnected ? "var(--emerald)" : "var(--text-dim)" }} />
+                                                {healthLabel && <span style={{ fontSize: "11px", color: healthColor, fontWeight: 500 }}>{healthLabel}</span>}
                                             </div>
                                         </td>
-                                        <td className="p-4">
-                                            <div className="flex gap-2">
+                                        <td className="td-diary">
+                                            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                                                 {isConnected ? (
-                                                    <span className="text-emerald-400 text-sm font-medium">
-                                                        Connected
-                                                    </span>
+                                                    <span style={{ fontSize: "11px", color: "var(--emerald)", fontWeight: 600 }}>Connected</span>
                                                 ) : (
-                                                    <button
-                                                        onClick={() => handleConnect(account.id)}
-                                                        disabled={connecting === String(account.id)}
-                                                        className="text-emerald-400 hover:text-emerald-300 disabled:opacity-50 text-sm"
-                                                    >
+                                                    <button onClick={() => handleConnect(account.id)} disabled={connecting === String(account.id)}
+                                                        style={{ fontSize: "11px", color: "var(--emerald)", background: "none", border: "none", cursor: "pointer", padding: 0, opacity: connecting === String(account.id) ? 0.5 : 1, fontFamily: "'Sora', sans-serif" }}>
                                                         {connecting === String(account.id) ? "..." : "Connect"}
                                                     </button>
                                                 )}
-                                                <button
-                                                    onClick={() => handleEdit(account)}
-                                                    className="text-blue-400 hover:text-blue-300 text-sm"
-                                                >
+                                                <button onClick={() => handleEdit(account)}
+                                                    style={{ fontSize: "11px", color: "var(--cyan)", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: "'Sora', sans-serif" }}>
                                                     Edit
                                                 </button>
-                                                <button
-                                                    onClick={() => handleDelete(account.id)}
-                                                    disabled={deleting === account.id}
-                                                    className="text-red-400 hover:text-red-300 disabled:opacity-50 text-sm"
-                                                >
+                                                <button onClick={() => handleDelete(account.id)} disabled={deleting === account.id}
+                                                    style={{ fontSize: "11px", color: "var(--rose)", background: "none", border: "none", cursor: "pointer", padding: 0, opacity: deleting === account.id ? 0.5 : 1, fontFamily: "'Sora', sans-serif" }}>
                                                     {deleting === account.id ? "..." : "Delete"}
                                                 </button>
                                             </div>
@@ -504,15 +534,8 @@ export default function AccountsPage() {
                         </tbody>
                     </table>
                     {filtered.length === 0 && (
-                        <div className="p-12 text-center text-slate-600">
-                            {accounts.length === 0 ? (
-                                <>
-                                    <p className="text-lg mb-2">No accounts found</p>
-                                    <p>Add your first MT5 account to get started.</p>
-                                </>
-                            ) : (
-                                <p>No accounts match your search or filter.</p>
-                            )}
+                        <div style={{ padding: "48px", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
+                            {accounts.length === 0 ? "No accounts found — add your first MT5 account." : "No accounts match your search or filter."}
                         </div>
                     )}
                 </div>

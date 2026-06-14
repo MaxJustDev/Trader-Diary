@@ -7,8 +7,10 @@ from app.models.accounts import Account
 from app.models.funds import Fund, FundProgram
 from app.schemas import AccountCreate, AccountUpdate, AccountResponse
 from app.services.mt5_service import MT5Service
-from app.services.mt5_terminal import create_terminal_copy, delete_terminal_copy
-from app.services.encryption import encrypt_password, decrypt_password
+from app.services.mt5_terminal import create_terminal_copy, delete_terminal_copy, resolve_base_path
+from app.services.encryption import encrypt_password
+from app.services.mt5_auth import login_account
+from app.services.symbol_resolver import parse_aliases, serialize_aliases
 from app.services.phase_detector import detect_phase, parse_starting_balance
 from app.services.rule_checker import RuleChecker
 
@@ -72,9 +74,12 @@ async def create_account(account_data: AccountCreate, db: Session = Depends(get_
 
     encrypted = encrypt_password(account_data.password)
 
-    # Create a dedicated MT5 terminal copy for this account
+    # Create a dedicated MT5 terminal copy for this account.
+    # For broker-specific terminals (e.g. The5ers, Quant Tekel) copy from their
+    # own installation instead of the generic MetaTrader 5 base.
     try:
-        mt5_path = create_terminal_copy(account_data.account_id)
+        base_path = resolve_base_path(account_data.server)
+        mt5_path = create_terminal_copy(account_data.account_id, base_path=base_path)
     except FileNotFoundError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -224,13 +229,14 @@ async def refresh_all_accounts(db: Session = Depends(get_db)):
 
     for account in accounts:
         try:
-            password = decrypt_password(account.password)
             matched_fund = _find_fund_by_server(account.server, funds)
 
-            # Shutdown before each account to ensure clean state
-            mt5.shutdown()
+            # Only shutdown if switching to a different terminal path (avoids slow re-init per account)
+            next_path = account.mt5_path or mt5.default_exe_path()
+            if mt5.is_initialized and mt5.current_path != next_path:
+                mt5.shutdown()
 
-            if mt5.login(int(account.account_id), password, account.server, path=account.mt5_path):
+            if login_account(account, mt5):
                 info = mt5.get_account_info()
                 positions = mt5.get_positions()
 
@@ -285,3 +291,50 @@ async def refresh_all_accounts(db: Session = Depends(get_db)):
     mt5.shutdown()
 
     return {"results": results}
+
+
+# ── Per-account symbol alias management (Batch G) ─────────────────────────────
+from pydantic import BaseModel
+
+
+class SymbolAliasUpsert(BaseModel):
+    requested: str
+    resolved: str
+
+
+@router.get("/{account_id}/symbol-aliases")
+async def get_symbol_aliases(account_id: int, db: Session = Depends(get_db)):
+    """Return the per-account symbol alias map (requested → resolved)."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {"account_id": account.id, "aliases": parse_aliases(account.symbol_aliases)}
+
+
+@router.post("/{account_id}/symbol-aliases")
+async def upsert_symbol_alias(
+    account_id: int, payload: SymbolAliasUpsert, db: Session = Depends(get_db),
+):
+    """Set or update one alias entry for the account."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    aliases = parse_aliases(account.symbol_aliases)
+    aliases[payload.requested.strip()] = payload.resolved.strip()
+    account.symbol_aliases = serialize_aliases(aliases)
+    db.commit()
+    return {"account_id": account.id, "aliases": aliases}
+
+
+@router.delete("/{account_id}/symbol-aliases/{requested}")
+async def delete_symbol_alias(account_id: int, requested: str, db: Session = Depends(get_db)):
+    """Remove a single alias entry."""
+    account = db.query(Account).filter(Account.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    aliases = parse_aliases(account.symbol_aliases)
+    aliases.pop(requested, None)
+    aliases.pop(requested.upper(), None)
+    account.symbol_aliases = serialize_aliases(aliases) if aliases else None
+    db.commit()
+    return {"account_id": account.id, "aliases": aliases}

@@ -1,4 +1,5 @@
-import MetaTrader5 as mt5
+from app.services.mt5_provider import mt5
+from app.services.stealth import apply_stealth
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import os
@@ -25,6 +26,7 @@ class MT5Service:
         self.connected_account = None
         self.is_initialized = False
         self.current_path = None
+        self._server_time_symbol: Optional[str] = None
 
     @staticmethod
     def default_exe_path() -> str:
@@ -175,6 +177,19 @@ class MT5Service:
             "last": tick.last,
         }
 
+    def _get_filling_mode(self, symbol: str) -> int:
+        """Auto-detect the best filling mode supported by the broker for this symbol."""
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return mt5.ORDER_FILLING_IOC
+        filling = info.filling_mode
+        # bit 0 = FOK, bit 1 = IOC; if neither, use RETURN
+        if filling & 2:
+            return mt5.ORDER_FILLING_IOC
+        if filling & 1:
+            return mt5.ORDER_FILLING_FOK
+        return mt5.ORDER_FILLING_RETURN
+
     def calculate_margin(self, symbol: str, volume: float, order_type: str) -> Optional[float]:
         """Calculate required margin for an order"""
         if not self.is_initialized:
@@ -201,7 +216,7 @@ class MT5Service:
             return {"success": False, "error": f"Failed to get tick for {pos.symbol}"}
 
         price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
-        request = {
+        request = apply_stealth({
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": pos.symbol,
             "volume": pos.volume,
@@ -212,8 +227,8 @@ class MT5Service:
             "magic": 234000,
             "comment": "TraderDiary Close",
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
-        }
+            "type_filling": self._get_filling_mode(pos.symbol),
+        }, volume_variance=0.0)  # never alter a close's volume
 
         result = mt5.order_send(request)
         if result is None:
@@ -230,6 +245,72 @@ class MT5Service:
             "volume": result.volume,
             "price": result.price,
         }
+
+    def partial_close(self, ticket: int, volume: float) -> Dict[str, Any]:
+        """Close a partial volume of an open position."""
+        if not self.is_initialized:
+            return {"success": False, "error": "MT5 not initialized"}
+
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            return {"success": False, "error": f"Position #{ticket} not found"}
+
+        pos = positions[0]
+        close_vol = min(round(volume, 8), pos.volume)
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if tick is None:
+            return {"success": False, "error": f"Failed to get tick for {pos.symbol}"}
+
+        price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+        request = apply_stealth({
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": pos.symbol,
+            "volume": close_vol,
+            "type": close_type,
+            "position": ticket,
+            "price": price,
+            "deviation": 20,
+            "magic": 234000,
+            "comment": "TraderDiary Partial",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": self._get_filling_mode(pos.symbol),
+        }, volume_variance=0.0)  # never alter a partial-close's volume
+
+        result = mt5.order_send(request)
+        if result is None:
+            return {"success": False, "error": "Order send failed"}
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            return {"success": False, "error": f"Partial close failed (retcode {result.retcode}): {result.comment}"}
+
+        return {"success": True, "order": result.order, "volume": result.volume, "price": result.price}
+
+    def modify_position(self, ticket: int, sl: float, tp: float) -> Dict[str, Any]:
+        """Modify SL and/or TP on an existing position."""
+        if not self.is_initialized:
+            return {"success": False, "error": "MT5 not initialized"}
+
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            return {"success": False, "error": f"Position #{ticket} not found"}
+
+        pos = positions[0]
+        request = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": pos.symbol,
+            "position": ticket,
+            "sl": sl,
+            "tp": tp,
+        }
+
+        result = mt5.order_send(request)
+        if result is None:
+            return {"success": False, "error": "Order send failed"}
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            return {"success": False, "error": f"Modify failed (retcode {result.retcode}): {result.comment}"}
+
+        return {"success": True, "ticket": ticket, "sl": sl, "tp": tp}
 
     def place_market_order(
         self,
@@ -253,7 +334,7 @@ class MT5Service:
         action = mt5.TRADE_ACTION_DEAL
         type_order = mt5.ORDER_TYPE_BUY if order_type.upper() == "BUY" else mt5.ORDER_TYPE_SELL
 
-        request = {
+        request = apply_stealth({
             "action": action,
             "symbol": symbol,
             "volume": volume,
@@ -265,8 +346,8 @@ class MT5Service:
             "magic": 234000,
             "comment": comment,
             "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
-        }
+            "type_filling": self._get_filling_mode(symbol),
+        })
 
         result = mt5.order_send(request)
 

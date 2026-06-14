@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Text, TIMESTAMP, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -12,6 +12,7 @@ class Fund(Base):
     server_pattern = Column(String(100), nullable=False)
     name_format = Column(String(200), nullable=True)
     account_name_patterns = Column(Text, nullable=True)  # JSON string
+    mt5_base_path = Column(String(500), nullable=True)   # broker-specific terminal install (overrides global default)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     programs = relationship("FundProgram", back_populates="fund", cascade="all, delete-orphan")
@@ -30,11 +31,16 @@ class FundProgram(Base):
     best_day_rule_pct = Column(Float, nullable=True)
     min_profit_days = Column(Integer, nullable=True)
     profit_day_threshold_pct = Column(Float, nullable=True)
+    max_risk_per_trade_pct = Column(Float, nullable=True)  # e.g. 2.0 for Bootcamp
     created_at = Column(TIMESTAMP, server_default=func.now())
 
     fund = relationship("Fund", back_populates="programs")
     phase_rules = relationship("FundPhaseRule", back_populates="program", cascade="all, delete-orphan")
     accounts = relationship("Account", back_populates="fund_program")
+
+    __table_args__ = (
+        Index("ix_fund_programs_fund_id", "fund_id"),
+    )
 
 
 class FundPhaseRule(Base):
