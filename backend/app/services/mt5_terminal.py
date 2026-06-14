@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import sys
 import logging
 from typing import Dict, Optional
 
@@ -78,6 +79,11 @@ def create_terminal_copy(account_id: str, base_path: Optional[str] = None, db: O
     Returns the path to the new terminal64.exe.
     Skips copy if the folder already exists.
     """
+    if sys.platform != "win32":
+        # Linux/Wine: one shared terminal, no per-account copies. The worker
+        # connects to the already-running Wine terminal via the bridge.
+        logger.info("Non-Windows: skipping per-account terminal copy for %s", account_id)
+        return ""
     source = base_path or (get_setting(db, KEY_DEFAULT_MT5_BASE_PATH) if db else None) or MT5_BASE_PATH
     dest_dir = os.path.join(_effective_terminals_dir(db), _terminal_dir_name(account_id))
 
@@ -107,6 +113,8 @@ def create_terminal_copy(account_id: str, base_path: Optional[str] = None, db: O
 
 def delete_terminal_copy(account_id: str) -> bool:
     """Delete the per-account terminal folder. Returns True if deleted."""
+    if sys.platform != "win32":
+        return False
     dest_dir = os.path.join(MT5_TERMINALS_DIR, _terminal_dir_name(account_id))
 
     if os.path.exists(dest_dir):
