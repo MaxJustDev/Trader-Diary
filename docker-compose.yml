@@ -1,0 +1,40 @@
+# TraderDiary web layer for Dokploy (Compose service).
+#
+# This runs ONLY the FastAPI API + static frontend. The MT5/Wine bridge runs
+# natively on the host (systemd) and is reached over TCP via MT5_BRIDGE_HOST.
+# Set the variables below in the Dokploy Environment tab (see deploy/dokploy/README.md).
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Fernet key for stored MT5 passwords. REQUIRED. Keep it stable across
+      # redeploys or saved passwords can't be decrypted. Generate with:
+      #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY}
+      # Reach the Wine MT5 bridge on the host. host.docker.internal resolves to
+      # the host via the extra_hosts mapping below.
+      MT5_BRIDGE_HOST: ${MT5_BRIDGE_HOST:-host.docker.internal}
+      MT5_BRIDGE_PORT: ${MT5_BRIDGE_PORT:-8765}
+      TRADERDIARY_MT5_BACKEND: bridge
+      # One Wine MT5 terminal at a time on the host (RAM-bound).
+      MAX_ACTIVE_ACCOUNTS: ${MAX_ACTIVE_ACCOUNTS:-1}
+      LOW_RESOURCE_MODE: ${LOW_RESOURCE_MODE:-1}
+      STEALTH_MODE: ${STEALTH_MODE:-tier1}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 8001
+    extra_hosts:
+      # Makes host.docker.internal point at the Docker host (Linux).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Persist SQLite DB (traderdiary.db) + any runtime files.
+      - traderdiary_data:/data
+    ports:
+      # Direct LAN access. If you attach a Dokploy Domain instead, Traefik
+      # routes to container port 8001 and you can drop this mapping.
+      - "8001:8001"
+
+volumes:
+  traderdiary_data:

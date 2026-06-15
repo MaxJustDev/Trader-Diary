@@ -1,0 +1,47 @@
+# Build context excludes — keep the image small + reproducible.
+# Frontend is rebuilt inside the image; backend deps reinstalled.
+
+# VCS / tooling
+.git
+.gitignore
+.worktrees
+.claude
+.auto-claude
+.superpowers
+.vscode
+.idea
+
+# Docs / scratch (not needed at runtime)
+docs
+*.md
+!backend/app/data/**/*.md
+PlanofPropfirm.md
+QT_Funded_Account_Rules.md
+nul
+run-claude.bat
+build.bat
+Makefile
+
+# Python
+**/__pycache__
+**/*.pyc
+backend/venv
+backend/.env
+backend/dist
+backend/build
+backend/*.spec
+backend/.pytest_cache
+
+# Node / Next
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/.turbo
+
+# Local data — never bake the DB into the image (lives in a volume)
+*.db
+traderdiary.db
+backend/traderdiary.db
+
+# Linux/Wine host artifacts (host-only, not for the container)
+deploy/linux/__pycache__
