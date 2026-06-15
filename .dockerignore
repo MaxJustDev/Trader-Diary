@@ -1,5 +1,6 @@
 # Build context excludes — keep the image small + reproducible.
-# Frontend is rebuilt inside the image; backend deps reinstalled.
+# Frontend is prebuilt off-box (committed frontend/out) and copied in; backend
+# deps reinstalled.
 
 # VCS / tooling
 .git
@@ -32,10 +33,10 @@ backend/build
 backend/*.spec
 backend/.pytest_cache
 
-# Node / Next
+# Node / Next (frontend/out is intentionally NOT excluded — it's the prebuilt
+# static bundle the image serves)
 frontend/node_modules
 frontend/.next
-frontend/out
 frontend/.turbo
 
 # Local data — never bake the DB into the image (lives in a volume)

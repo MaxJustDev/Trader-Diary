@@ -15,7 +15,9 @@
 
 # next.js
 /.next/
-/out/
+# /out/ is committed on purpose — it's the prebuilt static bundle the Dokploy
+# image serves (the low-RAM host can't build Next.js). Rebuild + recommit after
+# frontend changes: cd frontend && npm run build
 
 # production
 /build

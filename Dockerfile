@@ -1,20 +1,14 @@
 # syntax=docker/dockerfile:1
 #
-# TraderDiary web layer (FastAPI API + Next.js static export) for Dokploy.
-# MT5 itself does NOT run here — it runs under Wine on the host as a systemd
-# bridge. This container talks to that bridge over TCP (MT5_BRIDGE_HOST).
-# See deploy/dokploy/README.md.
+# TraderDiary web layer (FastAPI API + PREBUILT Next.js static export) for Dokploy.
+# The Dokploy host is low-RAM (the reason MAX_ACTIVE_ACCOUNTS=1); building Next.js
+# there OOMs. So the frontend is built off-box and committed as frontend/out — this
+# image just serves it. Rebuild with `cd frontend && npm run build` and recommit
+# after frontend changes. See deploy/dokploy/README.md.
+#
+# MT5 runs under Wine on the host as a systemd bridge; this container talks to it
+# over TCP (MT5_BRIDGE_HOST).
 
-# ── Stage 1: build the Next.js static export (frontend/out) ───────────────────
-FROM node:20-alpine AS frontend
-WORKDIR /build/frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ ./
-# next.config.ts has output: "export" → emits ./out (static, no Node server)
-RUN npm run build
-
-# ── Stage 2: Python runtime serving the API + the static frontend ─────────────
 FROM python:3.10-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
@@ -37,8 +31,9 @@ RUN grep -ivE '^[[:space:]]*MetaTrader5' requirements.txt > requirements.linux.t
 # Backend source
 COPY backend/ ./
 
-# Built frontend → the path app/main.py expects: <app dir>/../../frontend/out
-COPY --from=frontend /build/frontend/out /app/frontend/out
+# Prebuilt frontend (committed) → the path app/main.py expects:
+# <app dir>/../../frontend/out
+COPY frontend/out /app/frontend/out
 
 # SQLite DB + runtime files are CWD-relative (database.py get_base_dir()).
 # Run from /data so a mounted volume persists the DB across redeploys.
@@ -47,7 +42,7 @@ WORKDIR /data
 
 EXPOSE 8001
 
-# index.html (static mount) proves API process + frontend are both up.
+# index.html (static mount) proves the API process + frontend are both up.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/',timeout=3).status==200 else 1)"
 

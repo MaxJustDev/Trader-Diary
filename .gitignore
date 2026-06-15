@@ -30,7 +30,8 @@ venv/
 # Node
 node_modules/
 .next/
-out/
+# Root-only — frontend/out is committed (prebuilt static for the low-RAM Dokploy host)
+/out/
 
 # Database
 *.db
